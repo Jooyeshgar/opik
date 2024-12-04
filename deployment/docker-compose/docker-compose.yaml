@@ -129,7 +129,6 @@ networks:
   local:
     driver: bridge
     name: local-network
-    external: true
 
 volumes:
   clickhouse:
