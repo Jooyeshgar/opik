@@ -18,6 +18,8 @@ services:
       - "3306"
     volumes:
       - mysql:/var/lib/mysql/:type=volume,source=~/opik/mysql
+    networks:
+      - local
 
   redis:
     image: redis:7.2.4-alpine3.19
@@ -31,6 +33,8 @@ services:
       timeout: 4s
       retries: 20
       start_period: 30s
+    networks:
+      - local
 
   clickhouse:
     image: clickhouse/clickhouse-server:24.3.6.48-alpine
@@ -53,7 +57,8 @@ services:
       interval: 1s
       timeout: 1s
       retries: 300
-
+    networks:
+      - local
   backend:
     image: ghcr.io/comet-ml/opik/opik-backend:${OPIK_VERSION:-latest}
     build:
@@ -61,6 +66,7 @@ services:
       dockerfile: Dockerfile
       args:
         OPIK_VERSION: ${OPIK_VERSION:-latest}
+    platform: linux/amd64
     hostname: backend
     command: [ "bash", "-c", "./run_db_migrations.sh && ./entrypoint.sh" ]
     environment:
@@ -97,15 +103,18 @@ services:
         condition: service_healthy
       clickhouse:
         condition: service_healthy
-
+    networks:
+      - local
+      
   frontend:
     image: ghcr.io/comet-ml/opik/opik-frontend:${OPIK_VERSION:-latest}
     build:
       context: ../../apps/opik-frontend
       dockerfile: Dockerfile
+    platform: linux/amd64
     hostname: frontend
     ports:
-      - "5173:5173"
+      - "127.0.0.1:5173:5173"
     extra_hosts:
       - "apihost:host-gateway"
     volumes:
@@ -113,9 +122,14 @@ services:
     depends_on:
       backend:
         condition: service_started
+    networks:
+      - local
 
 networks:
-  default:
+  local:
+    driver: bridge
+    name: local-network
+    external: true
 
 volumes:
   clickhouse:
