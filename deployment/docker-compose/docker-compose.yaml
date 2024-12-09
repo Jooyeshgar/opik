@@ -15,7 +15,7 @@ services:
       interval: 1s
       retries: 300
     ports:
-      - "3306"
+      - "127.0.0.1:3306:3306"
     volumes:
       - mysql:/var/lib/mysql/:type=volume,source=~/opik/mysql
     networks:
@@ -27,7 +27,7 @@ services:
     hostname: redis
     command: redis-server --requirepass opik
     ports:
-      - '6379'
+      - '127.0.0.1:6379:6379'
     healthcheck:
       test: [ "CMD", "nc", "-z", "localhost", "6379" ]
       interval: 2s
@@ -49,8 +49,8 @@ services:
       # https://clickhouse.com/docs/en/operations/access-rights#enabling-access-control
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
     ports:
-      - "8123" # HTTP default port
-      - "9000" # Native Protocol port
+      - "127.0.0.1:8123:8123" # HTTP default port
+      - "127.0.0.1:9000:9000" # Native Protocol port
     volumes:
       - clickhouse:/var/lib/clickhouse/:type=volume,source=~/opik/clickhouse/data
       - clickhouse-server:/var/log/clickhouse-server/:type=volume,source=~/opik/clickhouse/logs
@@ -99,8 +99,8 @@ services:
       OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE: delta
       OPIK_USAGE_REPORT_ENABLED: ${OPIK_USAGE_REPORT_ENABLED:-true}
     ports:
-      - "8080"
-      - "3003"
+      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:3003:3003"
     depends_on:
       mysql:
         condition: service_healthy
