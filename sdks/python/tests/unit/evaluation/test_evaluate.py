@@ -1,16 +1,15 @@
+from typing import Any, Dict
+
 import mock
 import pytest
-from typing import Dict, Any
 
-from opik.api_objects.dataset import dataset_item
-from opik.api_objects import opik_client
+import opik
 from opik import evaluation, exceptions, url_helpers
+from opik.api_objects import opik_client
+from opik.api_objects.dataset import dataset_item
 from opik.evaluation import metrics
-from ...testlib import ANY_BUT_NONE, assert_equal
-from ...testlib.models import (
-    TraceModel,
-    FeedbackScoreModel,
-)
+from ...testlib import ANY_BUT_NONE, ANY_STRING, SpanModel, assert_equal
+from ...testlib.models import FeedbackScoreModel, TraceModel
 
 
 def test_evaluate_happyflow(fake_backend):
@@ -69,7 +68,10 @@ def test_evaluate_happyflow(fake_backend):
     )
 
     mock_experiment.insert.assert_has_calls(
-        [mock.call(experiment_items=mock.ANY), mock.call(experiment_items=mock.ANY)]
+        [
+            mock.call(experiment_items_references=mock.ANY),
+            mock.call(experiment_items_references=mock.ANY),
+        ]
     )
     EXPECTED_TRACE_TREES = [
         TraceModel(
@@ -84,7 +86,57 @@ def test_evaluate_happyflow(fake_backend):
             },
             start_time=ANY_BUT_NONE,
             end_time=ANY_BUT_NONE,
-            spans=[],
+            spans=[
+                SpanModel(
+                    id=ANY_BUT_NONE,
+                    type="general",
+                    name="say_task",
+                    input={
+                        "dataset_item": {
+                            "input": {"message": "say hello"},
+                            "reference": "hello",
+                        },
+                    },
+                    output={
+                        "output": "hello",
+                    },
+                    start_time=ANY_BUT_NONE,
+                    end_time=ANY_BUT_NONE,
+                    spans=[],
+                ),
+                SpanModel(
+                    id=ANY_BUT_NONE,
+                    type="general",
+                    name="metrics_calculation",
+                    input={
+                        "scoring_metrics": ANY_BUT_NONE,
+                        "test_case_": ANY_BUT_NONE,
+                    },
+                    output={
+                        "output": ANY_BUT_NONE,
+                    },
+                    start_time=ANY_BUT_NONE,
+                    end_time=ANY_BUT_NONE,
+                    spans=[
+                        SpanModel(
+                            id=ANY_BUT_NONE,
+                            type="general",
+                            name="equals_metric",
+                            input={
+                                "ignored_kwargs": {"input": {"message": "say hello"}},
+                                "output": "hello",
+                                "reference": "hello",
+                            },
+                            output={
+                                "output": ANY_BUT_NONE,
+                            },
+                            start_time=ANY_BUT_NONE,
+                            end_time=ANY_BUT_NONE,
+                            spans=[],
+                        ),
+                    ],
+                ),
+            ],
             feedback_scores=[
                 FeedbackScoreModel(
                     id=ANY_BUT_NONE,
@@ -105,7 +157,53 @@ def test_evaluate_happyflow(fake_backend):
             },
             start_time=ANY_BUT_NONE,
             end_time=ANY_BUT_NONE,
-            spans=[],
+            spans=[
+                SpanModel(
+                    id=ANY_BUT_NONE,
+                    type="general",
+                    name="say_task",
+                    input={
+                        "dataset_item": {
+                            "input": {"message": "say bye"},
+                            "reference": "bye",
+                        }
+                    },
+                    output={"output": "not bye"},
+                    start_time=ANY_BUT_NONE,
+                    end_time=ANY_BUT_NONE,
+                    spans=[],
+                ),
+                SpanModel(
+                    id=ANY_BUT_NONE,
+                    type="general",
+                    name="metrics_calculation",
+                    input={
+                        "scoring_metrics": ANY_BUT_NONE,
+                        "test_case_": ANY_BUT_NONE,
+                    },
+                    output={"output": ANY_BUT_NONE},
+                    start_time=ANY_BUT_NONE,
+                    end_time=ANY_BUT_NONE,
+                    spans=[
+                        SpanModel(
+                            id=ANY_BUT_NONE,
+                            type="general",
+                            name="equals_metric",
+                            input={
+                                "ignored_kwargs": {"input": {"message": "say bye"}},
+                                "output": "not bye",
+                                "reference": "bye",
+                            },
+                            output={
+                                "output": ANY_BUT_NONE,
+                            },
+                            start_time=ANY_BUT_NONE,
+                            end_time=ANY_BUT_NONE,
+                            spans=[],
+                        )
+                    ],
+                ),
+            ],
             feedback_scores=[
                 FeedbackScoreModel(
                     id=ANY_BUT_NONE,
@@ -180,7 +278,10 @@ def test_evaluate_with_scoring_key_mapping(fake_backend):
         prompt=None,
     )
     mock_experiment.insert.assert_has_calls(
-        [mock.call(experiment_items=mock.ANY), mock.call(experiment_items=mock.ANY)]
+        [
+            mock.call(experiment_items_references=mock.ANY),
+            mock.call(experiment_items_references=mock.ANY),
+        ]
     )
 
     EXPECTED_TRACE_TREES = [
@@ -196,7 +297,61 @@ def test_evaluate_with_scoring_key_mapping(fake_backend):
             },
             start_time=ANY_BUT_NONE,
             end_time=ANY_BUT_NONE,
-            spans=[],
+            spans=[
+                SpanModel(
+                    id=ANY_BUT_NONE,
+                    type="general",
+                    name="say_task",
+                    input={
+                        "dataset_item": {
+                            "input": {"message": "say hello"},
+                            "expected_output": {"message": "hello"},
+                        },
+                    },
+                    output={
+                        "result": "hello",
+                    },
+                    start_time=ANY_BUT_NONE,
+                    end_time=ANY_BUT_NONE,
+                    spans=[],
+                ),
+                SpanModel(
+                    id=ANY_BUT_NONE,
+                    type="general",
+                    name="metrics_calculation",
+                    input={
+                        "scoring_metrics": ANY_BUT_NONE,
+                        "test_case_": ANY_BUT_NONE,
+                    },
+                    output={
+                        "output": ANY_BUT_NONE,
+                    },
+                    start_time=ANY_BUT_NONE,
+                    end_time=ANY_BUT_NONE,
+                    spans=[
+                        SpanModel(
+                            id=ANY_BUT_NONE,
+                            type="general",
+                            name="equals_metric",
+                            input={
+                                "ignored_kwargs": {
+                                    "expected_output": {"message": "hello"},
+                                    "input": {"message": "say hello"},
+                                    "result": "hello",
+                                },
+                                "output": "hello",
+                                "reference": "hello",
+                            },
+                            output={
+                                "output": ANY_BUT_NONE,
+                            },
+                            start_time=ANY_BUT_NONE,
+                            end_time=ANY_BUT_NONE,
+                            spans=[],
+                        ),
+                    ],
+                ),
+            ],
             feedback_scores=[
                 FeedbackScoreModel(
                     id=ANY_BUT_NONE,
@@ -217,7 +372,61 @@ def test_evaluate_with_scoring_key_mapping(fake_backend):
             },
             start_time=ANY_BUT_NONE,
             end_time=ANY_BUT_NONE,
-            spans=[],
+            spans=[
+                SpanModel(
+                    id=ANY_BUT_NONE,
+                    type="general",
+                    name="say_task",
+                    input={
+                        "dataset_item": {
+                            "input": {"message": "say bye"},
+                            "expected_output": {"message": "bye"},
+                        },
+                    },
+                    output={
+                        "result": "not bye",
+                    },
+                    start_time=ANY_BUT_NONE,
+                    end_time=ANY_BUT_NONE,
+                    spans=[],
+                ),
+                SpanModel(
+                    id=ANY_BUT_NONE,
+                    type="general",
+                    name="metrics_calculation",
+                    input={
+                        "scoring_metrics": ANY_BUT_NONE,
+                        "test_case_": ANY_BUT_NONE,
+                    },
+                    output={
+                        "output": ANY_BUT_NONE,
+                    },
+                    start_time=ANY_BUT_NONE,
+                    end_time=ANY_BUT_NONE,
+                    spans=[
+                        SpanModel(
+                            id=ANY_BUT_NONE,
+                            type="general",
+                            name="equals_metric",
+                            input={
+                                "ignored_kwargs": {
+                                    "expected_output": {"message": "bye"},
+                                    "input": {"message": "say bye"},
+                                    "result": "not bye",
+                                },
+                                "output": "not bye",
+                                "reference": "bye",
+                            },
+                            output={
+                                "output": ANY_BUT_NONE,
+                            },
+                            start_time=ANY_BUT_NONE,
+                            end_time=ANY_BUT_NONE,
+                            spans=[],
+                        ),
+                    ],
+                ),
+            ],
             feedback_scores=[
                 FeedbackScoreModel(
                     id=ANY_BUT_NONE,
@@ -277,3 +486,96 @@ def test_evaluate___output_key_is_missing_in_task_output_dict__equals_metric_mis
                 )
 
     mock_dataset.__internal_api__get_items_as_dataclasses__.assert_called_once()
+
+
+def test_evaluate__exception_raised_from_the_task__error_info_added_to_the_trace(
+    fake_backend,
+):
+    mock_dataset = mock.MagicMock(spec=["__internal_api__get_items_as_dataclasses__"])
+    mock_dataset.name = "the-dataset-name"
+    mock_dataset.__internal_api__get_items_as_dataclasses__.return_value = [
+        dataset_item.DatasetItem(
+            id="dataset-item-id-1",
+            input={"message": "say hello"},
+            reference="hello",
+        ),
+    ]
+
+    def say_task(dataset_item: Dict[str, Any]):
+        raise Exception("some-error-message")
+
+    mock_experiment = mock.Mock()
+    mock_create_experiment = mock.Mock()
+    mock_create_experiment.return_value = mock_experiment
+
+    mock_get_experiment_url = mock.Mock()
+    mock_get_experiment_url.return_value = "any_url"
+
+    with mock.patch.object(
+        opik_client.Opik, "create_experiment", mock_create_experiment
+    ):
+        with mock.patch.object(
+            url_helpers, "get_experiment_url", mock_get_experiment_url
+        ):
+            with pytest.raises(Exception):
+                evaluation.evaluate(
+                    dataset=mock_dataset,
+                    task=say_task,
+                    experiment_name="the-experiment-name",
+                    scoring_metrics=[],
+                    task_threads=1,
+                )
+            opik.flush_tracker()
+
+    mock_dataset.__internal_api__get_items_as_dataclasses__.assert_called_once()
+
+    mock_create_experiment.assert_called_once_with(
+        dataset_name="the-dataset-name",
+        name="the-experiment-name",
+        experiment_config=None,
+        prompt=None,
+    )
+
+    mock_experiment.insert.assert_called_once_with(
+        experiment_items_references=[mock.ANY]
+    )
+    EXPECTED_TRACE_TREE = TraceModel(
+        id=ANY_BUT_NONE,
+        name="evaluation_task",
+        input={
+            "input": {"message": "say hello"},
+            "reference": "hello",
+        },
+        output=None,
+        start_time=ANY_BUT_NONE,
+        end_time=ANY_BUT_NONE,
+        error_info={
+            "exception_type": "Exception",
+            "message": "some-error-message",
+            "traceback": ANY_STRING(),
+        },
+        spans=[
+            SpanModel(
+                id=ANY_BUT_NONE,
+                type="general",
+                name="say_task",
+                input={
+                    "dataset_item": {
+                        "input": {"message": "say hello"},
+                        "reference": "hello",
+                    }
+                },
+                error_info={
+                    "exception_type": "Exception",
+                    "message": "some-error-message",
+                    "traceback": ANY_STRING(),
+                },
+                output=None,
+                start_time=ANY_BUT_NONE,
+                end_time=ANY_BUT_NONE,
+                spans=[],
+            ),
+        ],
+    )
+
+    assert_equal(EXPECTED_TRACE_TREE, fake_backend.trace_trees[0])

@@ -30,6 +30,7 @@ import ru.vyarus.guicey.jdbi3.tx.TransactionTemplate;
 
 import java.sql.SQLIntegrityConstraintViolationException;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
@@ -68,11 +69,15 @@ public interface ProjectService {
 
     Page<Project> find(int page, int size, ProjectCriteria criteria, List<SortingField> sortingFields);
 
+    List<Project> findByIds(String workspaceId, Set<UUID> ids);
+
     List<Project> findByNames(String workspaceId, List<String> names);
 
     Project getOrCreate(String workspaceId, String projectName, String userName);
 
     Project retrieveByName(String projectName);
+
+    void recordLastUpdatedTrace(String workspaceId, Collection<ProjectIdLastUpdated> lastUpdatedTraces);
 }
 
 @Slf4j
@@ -223,16 +228,16 @@ class ProjectServiceImpl implements ProjectService {
     @Override
     public void delete(Set<UUID> ids) {
         if (ids.isEmpty()) {
+            log.info("ids list is empty, returning");
             return;
         }
 
         String workspaceId = requestContext.get().getWorkspaceId();
 
-        template.inTransaction(WRITE, BatchDeleteUtils.getHandler(
-                ProjectDAO.class,
-                repository -> repository.findByIds(ids, workspaceId),
-                Project::id,
-                (repository, idsToDelete) -> repository.delete(idsToDelete, workspaceId)));
+        template.inTransaction(WRITE, handle -> {
+            handle.attach(ProjectDAO.class).delete(ids, workspaceId);
+            return null;
+        });
     }
 
     @Override
@@ -275,6 +280,16 @@ class ProjectServiceImpl implements ProjectService {
 
         return new ProjectPage(page, projects.size(), projectRecordSet.total(), projects,
                 sortingFactory.getSortableFields());
+    }
+
+    @Override
+    public List<Project> findByIds(String workspaceId, Set<UUID> ids) {
+        if (ids.isEmpty()) {
+            log.info("ids list is empty, returning");
+            return List.of();
+        }
+
+        return template.inTransaction(READ_ONLY, handle -> handle.attach(ProjectDAO.class).findByIds(ids, workspaceId));
     }
 
     private Page<Project> findWithLastTraceSorting(int page, int size, @NonNull ProjectCriteria criteria,
@@ -341,7 +356,7 @@ class ProjectServiceImpl implements ProjectService {
     }
 
     @Override
-    public List<Project> findByNames(String workspaceId, List<String> names) {
+    public List<Project> findByNames(@NonNull String workspaceId, @NonNull List<String> names) {
 
         if (names.isEmpty()) {
             return List.of();
@@ -390,6 +405,12 @@ class ProjectServiceImpl implements ProjectService {
                     .findFirst()
                     .orElseThrow(this::createNotFoundError);
         });
+    }
+
+    @Override
+    public void recordLastUpdatedTrace(String workspaceId, Collection<ProjectIdLastUpdated> lastUpdatedTraces) {
+        template.inTransaction(WRITE,
+                handle -> handle.attach(ProjectDAO.class).recordLastUpdatedTrace(workspaceId, lastUpdatedTraces));
     }
 
 }

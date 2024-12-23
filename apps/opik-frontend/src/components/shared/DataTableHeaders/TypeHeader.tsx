@@ -17,7 +17,7 @@ import { cn } from "@/lib/utils";
 import HeaderWrapper from "@/components/shared/DataTableHeaders/HeaderWrapper";
 
 const COLUMN_TYPE_MAP: Record<
-  string,
+  COLUMN_TYPE,
   ForwardRefExoticComponent<
     Omit<LucideProps, "ref"> & RefAttributes<SVGSVGElement>
   >
@@ -26,6 +26,7 @@ const COLUMN_TYPE_MAP: Record<
   [COLUMN_TYPE.number]: Hash,
   [COLUMN_TYPE.list]: List,
   [COLUMN_TYPE.time]: Clock,
+  [COLUMN_TYPE.duration]: Clock,
   [COLUMN_TYPE.dictionary]: Braces,
   [COLUMN_TYPE.numberDictionary]: PenLine,
   [COLUMN_TYPE.cost]: Coins,
@@ -42,7 +43,7 @@ const TypeHeader = <TData,>(context: HeaderContext<TData, unknown>) => {
   const renderSort = () => {
     const nextDirection = column.getNextSortingOrder();
 
-    if (!isSortable || (!direction && !nextDirection)) return null;
+    if (!direction && !nextDirection) return null;
 
     const Icon = (direction || nextDirection) === "asc" ? ArrowUp : ArrowDown;
     return (
@@ -70,7 +71,7 @@ const TypeHeader = <TData,>(context: HeaderContext<TData, unknown>) => {
     >
       {Boolean(Icon) && <Icon className="size-3.5 shrink-0 text-slate-300" />}
       <span className="truncate">{header}</span>
-      {renderSort()}
+      {isSortable && renderSort()}
     </HeaderWrapper>
   );
 };

@@ -1,20 +1,24 @@
-import tqdm
 import logging
 from concurrent import futures
+from typing import Any, Callable, Dict, List, Optional, Union
 
-from typing import List, Optional, Dict, Any, Union, Callable
-from .types import LLMTask
+import tqdm
+
+from opik import context_storage, exceptions, opik_context, track, logging_messages
+from opik.api_objects import opik_client, trace
 from opik.api_objects.dataset import dataset, dataset_item
 from opik.api_objects.experiment import experiment, experiment_item
-from opik.api_objects import opik_client, trace
-from opik import context_storage, opik_context, exceptions
 
-from . import test_case, test_result
-from .metrics import arguments_helpers, score_result, base_metric
+from opik.decorator import error_info_collector
+from opik.types import ErrorInfoDict
+from . import test_case, test_result, exception_analyzer
+from .metrics import arguments_helpers, base_metric, score_result
+from .types import LLMTask
 
 LOGGER = logging.getLogger(__name__)
 
 
+@track(name="metrics_calculation")
 def _score_test_case(
     test_case_: test_case.TestCase,
     scoring_metrics: List[base_metric.BaseMetric],
@@ -39,7 +43,7 @@ def _score_test_case(
                 score_results.append(result)
         except exceptions.ScoreMethodMissingArguments:
             raise
-        except Exception as e:
+        except Exception as exception:
             # This can be problematic if the metric returns a list of strings as we will not know the name of the metrics that have failed
             LOGGER.error(
                 "Failed to compute metric %s. Score result will be marked as failed.",
@@ -47,9 +51,17 @@ def _score_test_case(
                 exc_info=True,
             )
 
+            if exception_analyzer.is_llm_provider_rate_limit_error(exception):
+                LOGGER.error(
+                    logging_messages.LLM_PROVIDER_RATE_LIMIT_ERROR_DETECTED_IN_EVALUATE_FUNCTION
+                )
+
             score_results.append(
                 score_result.ScoreResult(
-                    name=metric.name, value=0.0, reason=str(e), scoring_failed=True
+                    name=metric.name,
+                    value=0.0,
+                    reason=str(exception),
+                    scoring_failed=True,
                 )
             )
 
@@ -71,6 +83,12 @@ def _process_item(
         Dict[str, Union[str, Callable[[Dict[str, Any]], Any]]]
     ],
 ) -> test_result.TestResult:
+    error_info: Optional[ErrorInfoDict] = None
+
+    if not hasattr(task, "opik_tracked"):
+        name = task.__name__ if hasattr(task, "__name__") else "llm_task"
+        task = track(name=name)(task)
+
     try:
         trace_data = trace.TraceData(
             input=item.get_content(),
@@ -79,9 +97,20 @@ def _process_item(
             project_name=project_name,
         )
         context_storage.set_trace_data(trace_data)
+
         item_content = item.get_content()
+
         LOGGER.debug("Task started, input: %s", item_content)
-        task_output_ = task(item_content)
+        try:
+            task_output_ = task(item_content)
+        except Exception as exception:
+            if exception_analyzer.is_llm_provider_rate_limit_error(exception):
+                LOGGER.error(
+                    logging_messages.LLM_PROVIDER_RATE_LIMIT_ERROR_DETECTED_IN_EVALUATE_FUNCTION
+                )
+
+            error_info = error_info_collector.collect(exception)
+            raise
         LOGGER.debug("Task finished, output: %s", task_output_)
 
         opik_context.update_current_trace(output=task_output_)
@@ -102,20 +131,23 @@ def _process_item(
         test_result_ = _score_test_case(
             test_case_=test_case_, scoring_metrics=scoring_metrics
         )
-
         return test_result_
-
     finally:
         trace_data = context_storage.pop_trace_data()  # type: ignore
+
         assert trace_data is not None
+
+        if error_info is not None:
+            trace_data.error_info = error_info
+
         trace_data.init_end_time()
         client.trace(**trace_data.__dict__)
-        experiment_item_ = experiment_item.ExperimentItem(
+        experiment_item_ = experiment_item.ExperimentItemReferences(
             dataset_item_id=item.id,
             trace_id=trace_data.id,
         )
 
-        experiment_.insert(experiment_items=[experiment_item_])
+        experiment_.insert(experiment_items_references=[experiment_item_])
 
 
 def score_tasks(

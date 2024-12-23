@@ -7,6 +7,7 @@ from ..types.prompt_page_public import PromptPagePublic
 from ..core.pydantic_utilities import parse_obj_as
 from json.decoder import JSONDecodeError
 from ..core.api_error import ApiError
+from ..types.json_node_write import JsonNodeWrite
 from ..errors.bad_request_error import BadRequestError
 from ..errors.conflict_error import ConflictError
 from ..errors.unprocessable_entity_error import UnprocessableEntityError
@@ -91,6 +92,8 @@ class PromptsClient:
         id: typing.Optional[str] = OMIT,
         description: typing.Optional[str] = OMIT,
         template: typing.Optional[str] = OMIT,
+        metadata: typing.Optional[JsonNodeWrite] = OMIT,
+        change_description: typing.Optional[str] = OMIT,
         request_options: typing.Optional[RequestOptions] = None,
     ) -> None:
         """
@@ -105,6 +108,10 @@ class PromptsClient:
         description : typing.Optional[str]
 
         template : typing.Optional[str]
+
+        metadata : typing.Optional[JsonNodeWrite]
+
+        change_description : typing.Optional[str]
 
         request_options : typing.Optional[RequestOptions]
             Request-specific configuration.
@@ -130,6 +137,8 @@ class PromptsClient:
                 "name": name,
                 "description": description,
                 "template": template,
+                "metadata": metadata,
+                "change_description": change_description,
             },
             headers={
                 "content-type": "application/json",
@@ -462,6 +471,52 @@ class PromptsClient:
             raise ApiError(status_code=_response.status_code, body=_response.text)
         raise ApiError(status_code=_response.status_code, body=_response_json)
 
+    def delete_prompts_batch(
+        self,
+        *,
+        ids: typing.Sequence[str],
+        request_options: typing.Optional[RequestOptions] = None,
+    ) -> None:
+        """
+        Delete prompts batch
+
+        Parameters
+        ----------
+        ids : typing.Sequence[str]
+
+        request_options : typing.Optional[RequestOptions]
+            Request-specific configuration.
+
+        Returns
+        -------
+        None
+
+        Examples
+        --------
+        from Opik import OpikApi
+
+        client = OpikApi()
+        client.prompts.delete_prompts_batch(
+            ids=["ids"],
+        )
+        """
+        _response = self._client_wrapper.httpx_client.request(
+            "v1/private/prompts/delete",
+            method="POST",
+            json={
+                "ids": ids,
+            },
+            request_options=request_options,
+            omit=OMIT,
+        )
+        try:
+            if 200 <= _response.status_code < 300:
+                return
+            _response_json = _response.json()
+        except JSONDecodeError:
+            raise ApiError(status_code=_response.status_code, body=_response.text)
+        raise ApiError(status_code=_response.status_code, body=_response_json)
+
     def get_prompt_version_by_id(
         self,
         version_id: str,
@@ -748,6 +803,8 @@ class AsyncPromptsClient:
         id: typing.Optional[str] = OMIT,
         description: typing.Optional[str] = OMIT,
         template: typing.Optional[str] = OMIT,
+        metadata: typing.Optional[JsonNodeWrite] = OMIT,
+        change_description: typing.Optional[str] = OMIT,
         request_options: typing.Optional[RequestOptions] = None,
     ) -> None:
         """
@@ -762,6 +819,10 @@ class AsyncPromptsClient:
         description : typing.Optional[str]
 
         template : typing.Optional[str]
+
+        metadata : typing.Optional[JsonNodeWrite]
+
+        change_description : typing.Optional[str]
 
         request_options : typing.Optional[RequestOptions]
             Request-specific configuration.
@@ -795,6 +856,8 @@ class AsyncPromptsClient:
                 "name": name,
                 "description": description,
                 "template": template,
+                "metadata": metadata,
+                "change_description": change_description,
             },
             headers={
                 "content-type": "application/json",
@@ -1150,6 +1213,60 @@ class AsyncPromptsClient:
             f"v1/private/prompts/{jsonable_encoder(id)}",
             method="DELETE",
             request_options=request_options,
+        )
+        try:
+            if 200 <= _response.status_code < 300:
+                return
+            _response_json = _response.json()
+        except JSONDecodeError:
+            raise ApiError(status_code=_response.status_code, body=_response.text)
+        raise ApiError(status_code=_response.status_code, body=_response_json)
+
+    async def delete_prompts_batch(
+        self,
+        *,
+        ids: typing.Sequence[str],
+        request_options: typing.Optional[RequestOptions] = None,
+    ) -> None:
+        """
+        Delete prompts batch
+
+        Parameters
+        ----------
+        ids : typing.Sequence[str]
+
+        request_options : typing.Optional[RequestOptions]
+            Request-specific configuration.
+
+        Returns
+        -------
+        None
+
+        Examples
+        --------
+        import asyncio
+
+        from Opik import AsyncOpikApi
+
+        client = AsyncOpikApi()
+
+
+        async def main() -> None:
+            await client.prompts.delete_prompts_batch(
+                ids=["ids"],
+            )
+
+
+        asyncio.run(main())
+        """
+        _response = await self._client_wrapper.httpx_client.request(
+            "v1/private/prompts/delete",
+            method="POST",
+            json={
+                "ids": ids,
+            },
+            request_options=request_options,
+            omit=OMIT,
         )
         try:
             if 200 <= _response.status_code < 300:

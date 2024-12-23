@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useRef, useState } from "react";
-import { Info } from "lucide-react";
+import { Info, RotateCw } from "lucide-react";
 import useLocalStorageState from "use-local-storage-state";
 import {
   ColumnPinningState,
@@ -7,6 +7,12 @@ import {
   RowSelectionState,
 } from "@tanstack/react-table";
 import { keepPreviousData } from "@tanstack/react-query";
+import {
+  JsonParam,
+  NumberParam,
+  StringParam,
+  useQueryParam,
+} from "use-query-params";
 import get from "lodash/get";
 
 import DataTable from "@/components/shared/DataTable/DataTable";
@@ -28,12 +34,13 @@ import {
 } from "@/types/shared";
 import { convertColumnDataToColumn } from "@/lib/table";
 import ColumnsButton from "@/components/shared/ColumnsButton/ColumnsButton";
-import AddExperimentDialog from "@/components/pages/ExperimentsPage/AddExperimentDialog";
+import AddExperimentDialog from "@/components/pages/ExperimentsShared/AddExperimentDialog";
 import ExperimentsActionsPanel from "@/components/pages/ExperimentsShared/ExperimentsActionsPanel";
 import ExperimentsFiltersButton from "@/components/pages/ExperimentsShared/ExperimentsFiltersButton";
 import ExperimentRowActionsCell from "@/components/pages/ExperimentsPage/ExperimentRowActionsCell";
 import ExperimentsChartsWrapper from "@/components/pages/ExperimentsPage/charts/ExperimentsChartsWrapper";
 import SearchInput from "@/components/shared/SearchInput/SearchInput";
+import TooltipWrapper from "@/components/shared/TooltipWrapper/TooltipWrapper";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import useGroupedExperimentsList, {
@@ -112,18 +119,34 @@ const ExperimentsPage: React.FunctionComponent = () => {
   const resetDialogKeyRef = useRef(0);
   const [openDialog, setOpenDialog] = useState<boolean>(false);
 
-  const [search, setSearch] = useState("");
-  const [page, setPage] = useState(1);
-  const [datasetId, setDatasetId] = useState("");
-  const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
-  const [groupLimit, setGroupLimit] = useState<Record<string, number>>({});
+  const [search = "", setSearch] = useQueryParam("search", StringParam, {
+    updateType: "replaceIn",
+  });
 
-  const { data, isPending } = useGroupedExperimentsList({
+  const [page = 1, setPage] = useQueryParam("page", NumberParam, {
+    updateType: "replaceIn",
+  });
+
+  const [datasetId = "", setDatasetId] = useQueryParam("dataset", StringParam, {
+    updateType: "replaceIn",
+  });
+
+  const [groupLimit, setGroupLimit] = useQueryParam<Record<string, number>>(
+    "limits",
+    { ...JsonParam, default: {} },
+    {
+      updateType: "replaceIn",
+    },
+  );
+
+  const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
+
+  const { data, isPending, refetch } = useGroupedExperimentsList({
     workspaceName,
     groupLimit,
-    datasetId,
-    search,
-    page,
+    datasetId: datasetId!,
+    search: search!,
+    page: page!,
     size: DEFAULT_GROUPS_PER_PAGE,
     polling: true,
   });
@@ -172,11 +195,13 @@ const ExperimentsPage: React.FunctionComponent = () => {
   });
 
   const dynamicScoresColumns = useMemo(() => {
-    return (feedbackScoresData?.scores ?? []).map<DynamicColumn>((c) => ({
-      id: `feedback_scores.${c.name}`,
-      label: c.name,
-      columnType: COLUMN_TYPE.number,
-    }));
+    return (feedbackScoresData?.scores ?? [])
+      .sort((c1, c2) => c1.name.localeCompare(c2.name))
+      .map<DynamicColumn>((c) => ({
+        id: `feedback_scores.${c.name}`,
+        label: c.name,
+        columnType: COLUMN_TYPE.number,
+      }));
   }, [feedbackScoresData?.scores]);
 
   const dynamicColumnsIds = useMemo(
@@ -215,9 +240,7 @@ const ExperimentsPage: React.FunctionComponent = () => {
 
   const columns = useMemo(() => {
     return [
-      generateExperimentNameColumDef<GroupedExperiment>({
-        size: columnsWidth[COLUMN_NAME_ID],
-      }),
+      generateExperimentNameColumDef<GroupedExperiment>(),
       generateGroupedCellDef<GroupedExperiment, unknown>({
         id: GROUPING_COLUMN,
         label: "Dataset",
@@ -233,7 +256,6 @@ const ExperimentsPage: React.FunctionComponent = () => {
         DEFAULT_COLUMNS,
         {
           columnsOrder,
-          columnsWidth,
           selectedColumns,
         },
       ),
@@ -241,7 +263,6 @@ const ExperimentsPage: React.FunctionComponent = () => {
         scoresColumnsData,
         {
           columnsOrder: scoresColumnsOrder,
-          columnsWidth,
           selectedColumns,
         },
       ),
@@ -249,20 +270,15 @@ const ExperimentsPage: React.FunctionComponent = () => {
         cell: ExperimentRowActionsCell,
       }),
     ];
-  }, [
-    selectedColumns,
-    columnsWidth,
-    columnsOrder,
-    scoresColumnsOrder,
-    scoresColumnsData,
-  ]);
+  }, [selectedColumns, columnsOrder, scoresColumnsOrder, scoresColumnsData]);
 
   const resizeConfig = useMemo(
     () => ({
       enabled: true,
+      columnSizing: columnsWidth,
       onColumnResize: setColumnsWidth,
     }),
-    [setColumnsWidth],
+    [columnsWidth, setColumnsWidth],
   );
 
   const expandingConfig = useExpandingConfig({
@@ -281,6 +297,17 @@ const ExperimentsPage: React.FunctionComponent = () => {
     [setGroupLimit],
   );
 
+  const columnSections = useMemo(() => {
+    return [
+      {
+        title: "Feedback scores",
+        columns: scoresColumnsData,
+        order: scoresColumnsOrder,
+        onOrderChange: setScoresColumnsOrder,
+      },
+    ];
+  }, [scoresColumnsData, scoresColumnsOrder, setScoresColumnsOrder]);
+
   if (isPending || isFeedbackScoresPending) {
     return <Loader />;
   }
@@ -293,31 +320,36 @@ const ExperimentsPage: React.FunctionComponent = () => {
       <div className="mb-6 flex flex-wrap items-center justify-between gap-x-8 gap-y-2">
         <div className="flex items-center gap-2">
           <SearchInput
-            searchText={search}
+            searchText={search!}
             setSearchText={setSearch}
             placeholder="Search by name"
             className="w-[320px]"
           ></SearchInput>
           <ExperimentsFiltersButton
-            datasetId={datasetId}
+            datasetId={datasetId!}
             onChangeDatasetId={setDatasetId}
           />
         </div>
         <div className="flex items-center gap-2">
           <ExperimentsActionsPanel experiments={selectedRows} />
           <Separator orientation="vertical" className="ml-2 mr-2.5 h-6" />
+          <TooltipWrapper content="Refresh experiments list">
+            <Button
+              variant="outline"
+              size="icon"
+              className="shrink-0"
+              onClick={() => refetch()}
+            >
+              <RotateCw className="size-4" />
+            </Button>
+          </TooltipWrapper>
           <ColumnsButton
             columns={DEFAULT_COLUMNS}
             selectedColumns={selectedColumns}
             onSelectionChange={setSelectedColumns}
             order={columnsOrder}
             onOrderChange={setColumnsOrder}
-            extraSection={{
-              title: "Feedback Scores",
-              columns: scoresColumnsData,
-              order: scoresColumnsOrder,
-              onOrderChange: setScoresColumnsOrder,
-            }}
+            sections={columnSections}
           ></ColumnsButton>
           <Button variant="outline" onClick={handleNewExperimentClick}>
             <Info className="mr-2 size-4" />
@@ -352,7 +384,7 @@ const ExperimentsPage: React.FunctionComponent = () => {
       />
       <div className="py-4">
         <DataTablePagination
-          page={page}
+          page={page!}
           pageChange={setPage}
           size={DEFAULT_GROUPS_PER_PAGE}
           total={total}

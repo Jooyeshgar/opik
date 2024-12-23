@@ -7,7 +7,6 @@ import { useToast } from "@/components/ui/use-toast";
 
 type UseProjectCreateMutationParams = {
   project: Partial<Project>;
-  workspaceName: string;
 };
 
 const useProjectCreateMutation = () => {
@@ -15,20 +14,11 @@ const useProjectCreateMutation = () => {
   const { toast } = useToast();
 
   return useMutation({
-    mutationFn: async ({
-      project,
-      workspaceName,
-    }: UseProjectCreateMutationParams) => {
+    mutationFn: async ({ project }: UseProjectCreateMutationParams) => {
       const { data } = await api.post(PROJECTS_REST_ENDPOINT, {
         ...project,
-        workspace_name: workspaceName,
       });
       return data;
-    },
-    onMutate: async (params: UseProjectCreateMutationParams) => {
-      return {
-        queryKey: ["projects", { workspaceName: params.workspaceName }],
-      };
     },
     onError: (error: AxiosError) => {
       const message = get(
@@ -43,10 +33,10 @@ const useProjectCreateMutation = () => {
         variant: "destructive",
       });
     },
-    onSettled: (data, error, variables, context) => {
-      if (context) {
-        return queryClient.invalidateQueries({ queryKey: context.queryKey });
-      }
+    onSettled: () => {
+      return queryClient.invalidateQueries({
+        queryKey: ["projects"],
+      });
     },
   });
 };

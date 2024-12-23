@@ -22,6 +22,7 @@ import com.comet.opik.api.filter.SpanFilter;
 import com.comet.opik.api.resources.utils.AuthTestUtils;
 import com.comet.opik.api.resources.utils.ClickHouseContainerUtils;
 import com.comet.opik.api.resources.utils.ClientSupportUtils;
+import com.comet.opik.api.resources.utils.DurationUtils;
 import com.comet.opik.api.resources.utils.MigrationUtils;
 import com.comet.opik.api.resources.utils.MySQLContainerUtils;
 import com.comet.opik.api.resources.utils.RedisContainerUtils;
@@ -81,7 +82,9 @@ import java.math.BigDecimal;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.sql.SQLException;
+import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -90,6 +93,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.BiFunction;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
@@ -109,7 +113,11 @@ import static com.github.tomakehurst.wiremock.client.WireMock.matchingJsonPath;
 import static com.github.tomakehurst.wiremock.client.WireMock.okJson;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
+import static java.util.stream.Collectors.toCollection;
+import static java.util.stream.Collectors.toList;
+import static java.util.stream.Collectors.toMap;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 import static org.junit.jupiter.params.provider.Arguments.arguments;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
@@ -117,7 +125,7 @@ class SpansResourceTest {
 
     public static final String URL_TEMPLATE = "%s/v1/private/spans";
     public static final String[] IGNORED_FIELDS = {"projectId", "projectName", "createdAt",
-            "lastUpdatedAt", "feedbackScores", "createdBy", "lastUpdatedBy", "totalEstimatedCost"};
+            "lastUpdatedAt", "feedbackScores", "createdBy", "lastUpdatedBy", "totalEstimatedCost", "duration"};
     public static final String[] IGNORED_FIELDS_SCORES = {"createdAt", "lastUpdatedAt", "createdBy", "lastUpdatedBy"};
 
     public static final String API_KEY = UUID.randomUUID().toString();
@@ -893,6 +901,8 @@ class SpansResourceTest {
                                 .input(expected)
                                 .output(expected)
                                 .metadata(expected)
+                                .duration(DurationUtils.getDurationInMillisWithSubMilliPrecision(span.startTime(),
+                                        span.endTime()))
                                 .build())
                         .toList();
 
@@ -1025,7 +1035,7 @@ class SpansResourceTest {
         }
 
         @Test
-        void getByProjectName__whenFilterIdAndNameEqual__thenReturnSpansFiltered() {
+        void getSpansByProject__whenFilterIdAndNameEqual__thenReturnSpansFiltered() {
             String workspaceName = UUID.randomUUID().toString();
             String workspaceId = UUID.randomUUID().toString();
             String apiKey = UUID.randomUUID().toString();
@@ -1040,7 +1050,7 @@ class SpansResourceTest {
                             .projectName(projectName)
                             .feedbackScores(null)
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.forEach(expectedSpan -> SpansResourceTest.this.createAndAssert(expectedSpan, apiKey, workspaceName));
             var expectedSpans = List.of(spans.getFirst());
             var unexpectedSpans = List.of(podamFactory.manufacturePojo(Span.class).toBuilder()
@@ -1065,7 +1075,7 @@ class SpansResourceTest {
 
         @ParameterizedTest
         @MethodSource
-        void getByProjectName__whenFilterByCorrespondingField__thenReturnSpansFiltered(SpanField filterField,
+        void getSpansByProject__whenFilterByCorrespondingField__thenReturnSpansFiltered(SpanField filterField,
                 Operator filterOperator, String filterValue) {
             String workspaceName = UUID.randomUUID().toString();
             String workspaceId = UUID.randomUUID().toString();
@@ -1082,7 +1092,7 @@ class SpansResourceTest {
                             .projectName(projectName)
                             .feedbackScores(null)
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             unexpectedSpans.forEach(unexpectedSpan -> createAndAssert(unexpectedSpan, apiKey, workspaceName));
 
             var expectedSpans = List.of(podamFactory.manufacturePojo(Span.class).toBuilder()
@@ -1109,15 +1119,57 @@ class SpansResourceTest {
                     apiKey);
         }
 
-        static Stream<Arguments> getByProjectName__whenFilterByCorrespondingField__thenReturnSpansFiltered() {
+        @ParameterizedTest
+        @MethodSource("equalAndNotEqualFilters")
+        void getSpansByProject__whenFilterTotalEstimatedCostEqual_NotEqual__thenReturnSpansFiltered(Operator operator,
+                Function<List<Span>, List<Span>> getUnexpectedSpans,
+                Function<List<Span>, List<Span>> getExpectedSpans) {
+            String workspaceName = UUID.randomUUID().toString();
+            String workspaceId = UUID.randomUUID().toString();
+            String apiKey = UUID.randomUUID().toString();
+
+            mockTargetWorkspace(apiKey, workspaceName, workspaceId);
+
+            var projectName = generator.generate().toString();
+            var spans = PodamFactoryUtils.manufacturePojoList(podamFactory, Span.class)
+                    .stream()
+                    .map(span -> span.toBuilder()
+                            .projectId(null)
+                            .projectName(projectName)
+                            .feedbackScores(null)
+                            .build())
+                    .collect(toCollection(ArrayList::new));
+            spans.set(0, spans.getFirst().toBuilder()
+                    .model("gpt-3.5-turbo-1106")
+                    .usage(Map.of("completion_tokens", Math.abs(podamFactory.manufacturePojo(Integer.class)),
+                            "prompt_tokens", Math.abs(podamFactory.manufacturePojo(Integer.class))))
+                    .build());
+
+            spans.forEach(expectedSpan -> SpansResourceTest.this.createAndAssert(expectedSpan, apiKey, workspaceName));
+            var expectedSpans = getExpectedSpans.apply(spans);
+            var unexpectedSpans = getUnexpectedSpans.apply(spans);
+
+            var filters = List.of(SpanFilter.builder()
+                    .field(SpanField.TOTAL_ESTIMATED_COST)
+                    .operator(operator)
+                    .value("0")
+                    .build());
+            getAndAssertPage(workspaceName, projectName, filters, spans, expectedSpans.reversed(), unexpectedSpans,
+                    apiKey);
+        }
+
+        static Stream<Arguments> getSpansByProject__whenFilterByCorrespondingField__thenReturnSpansFiltered() {
             return Stream.of(
                     Arguments.of(SpanField.TOTAL_ESTIMATED_COST, Operator.GREATER_THAN, "0"),
                     Arguments.of(SpanField.MODEL, Operator.EQUAL, "gpt-3.5-turbo-1106"),
                     Arguments.of(SpanField.PROVIDER, Operator.EQUAL, null));
         }
 
-        @Test
-        void getByProjectName__whenFilterNameEqual__thenReturnSpansFiltered() {
+        @ParameterizedTest
+        @MethodSource("equalAndNotEqualFilters")
+        void getSpansByProject__whenFilterNameEqual_NotEqual__thenReturnSpansFiltered(Operator operator,
+                Function<List<Span>, List<Span>> getExpectedSpans,
+                Function<List<Span>, List<Span>> getUnexpectedSpans) {
             String workspaceName = UUID.randomUUID().toString();
             String workspaceId = UUID.randomUUID().toString();
             String apiKey = UUID.randomUUID().toString();
@@ -1132,25 +1184,32 @@ class SpansResourceTest {
                             .projectName(projectName)
                             .feedbackScores(null)
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.forEach(expectedSpan -> SpansResourceTest.this.createAndAssert(expectedSpan, apiKey, workspaceName));
-            var expectedSpans = List.of(spans.getFirst());
-            var unexpectedSpans = List.of(podamFactory.manufacturePojo(Span.class).toBuilder()
-                    .projectId(null)
-                    .build());
-            unexpectedSpans.forEach(
-                    expectedSpan -> SpansResourceTest.this.createAndAssert(expectedSpan, apiKey, workspaceName));
+            var expectedSpans = getExpectedSpans.apply(spans);
+            var unexpectedSpans = getUnexpectedSpans.apply(spans);
 
             var filters = List.of(SpanFilter.builder()
                     .field(SpanField.NAME)
-                    .operator(Operator.EQUAL)
+                    .operator(operator)
                     .value(spans.getFirst().name().toUpperCase())
                     .build());
-            getAndAssertPage(workspaceName, projectName, filters, spans, expectedSpans, unexpectedSpans, apiKey);
+            getAndAssertPage(workspaceName, projectName, filters, spans, expectedSpans.reversed(), unexpectedSpans,
+                    apiKey);
+        }
+
+        private Stream<Arguments> equalAndNotEqualFilters() {
+            return Stream.of(
+                    Arguments.of(Operator.EQUAL,
+                            (Function<List<Span>, List<Span>>) spans -> List.of(spans.getFirst()),
+                            (Function<List<Span>, List<Span>>) spans -> spans.subList(1, spans.size())),
+                    Arguments.of(Operator.NOT_EQUAL,
+                            (Function<List<Span>, List<Span>>) spans -> spans.subList(1, spans.size()),
+                            (Function<List<Span>, List<Span>>) spans -> List.of(spans.getFirst())));
         }
 
         @Test
-        void getByProjectName__whenFilterNameStartsWith__thenReturnSpansFiltered() {
+        void getSpansByProject__whenFilterNameStartsWith__thenReturnSpansFiltered() {
             String workspaceName = UUID.randomUUID().toString();
             String workspaceId = UUID.randomUUID().toString();
             String apiKey = UUID.randomUUID().toString();
@@ -1165,7 +1224,7 @@ class SpansResourceTest {
                             .projectName(projectName)
                             .feedbackScores(null)
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.forEach(expectedSpan -> SpansResourceTest.this.createAndAssert(expectedSpan, apiKey, workspaceName));
             var expectedSpans = List.of(spans.getFirst());
             var unexpectedSpans = List.of(podamFactory.manufacturePojo(Span.class).toBuilder()
@@ -1183,7 +1242,7 @@ class SpansResourceTest {
         }
 
         @Test
-        void getByProjectName__whenFilterNameEndsWith__thenReturnSpansFiltered() {
+        void getSpansByProject__whenFilterNameEndsWith__thenReturnSpansFiltered() {
             String workspaceName = UUID.randomUUID().toString();
             String workspaceId = UUID.randomUUID().toString();
             String apiKey = UUID.randomUUID().toString();
@@ -1198,7 +1257,7 @@ class SpansResourceTest {
                             .projectName(projectName)
                             .feedbackScores(null)
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.forEach(expectedSpan -> SpansResourceTest.this.createAndAssert(expectedSpan, apiKey, workspaceName));
             var expectedSpans = List.of(spans.getFirst());
             var unexpectedSpans = List.of(podamFactory.manufacturePojo(Span.class).toBuilder()
@@ -1216,7 +1275,7 @@ class SpansResourceTest {
         }
 
         @Test
-        void getByProjectName__whenFilterNameContains__thenReturnSpansFiltered() {
+        void getSpansByProject__whenFilterNameContains__thenReturnSpansFiltered() {
             String workspaceName = UUID.randomUUID().toString();
             String workspaceId = UUID.randomUUID().toString();
             String apiKey = UUID.randomUUID().toString();
@@ -1231,7 +1290,7 @@ class SpansResourceTest {
                             .projectName(projectName)
                             .feedbackScores(null)
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.forEach(expectedSpan -> SpansResourceTest.this.createAndAssert(expectedSpan, apiKey, workspaceName));
             var expectedSpans = List.of(spans.getFirst());
             var unexpectedSpans = List.of(podamFactory.manufacturePojo(Span.class).toBuilder()
@@ -1249,7 +1308,7 @@ class SpansResourceTest {
         }
 
         @Test
-        void getByProjectName__whenFilterNameNotContains__thenReturnSpansFiltered() {
+        void getSpansByProject__whenFilterNameNotContains__thenReturnSpansFiltered() {
             String workspaceName = UUID.randomUUID().toString();
             String workspaceId = UUID.randomUUID().toString();
             String apiKey = UUID.randomUUID().toString();
@@ -1266,7 +1325,7 @@ class SpansResourceTest {
                             .name(spanName)
                             .feedbackScores(null)
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.set(0, spans.getFirst().toBuilder()
                     .name(generator.generate().toString())
                     .build());
@@ -1286,8 +1345,11 @@ class SpansResourceTest {
             getAndAssertPage(workspaceName, projectName, filters, spans, expectedSpans, unexpectedSpans, apiKey);
         }
 
-        @Test
-        void getByProjectName__whenFilterStartTimeEqual__thenReturnSpansFiltered() {
+        @ParameterizedTest
+        @MethodSource("equalAndNotEqualFilters")
+        void getSpansByProject__whenFilterStartTimeEqual_NotEqual__thenReturnSpansFiltered(Operator operator,
+                Function<List<Span>, List<Span>> getExpectedSpans,
+                Function<List<Span>, List<Span>> getUnexpectedSpans) {
             String workspaceName = UUID.randomUUID().toString();
             String workspaceId = UUID.randomUUID().toString();
             String apiKey = UUID.randomUUID().toString();
@@ -1302,25 +1364,22 @@ class SpansResourceTest {
                             .projectName(projectName)
                             .feedbackScores(null)
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.forEach(expectedSpan -> SpansResourceTest.this.createAndAssert(expectedSpan, apiKey, workspaceName));
-            var expectedSpans = List.of(spans.getFirst());
-            var unexpectedSpans = List.of(podamFactory.manufacturePojo(Span.class).toBuilder()
-                    .projectId(null)
-                    .build());
-            unexpectedSpans.forEach(
-                    expectedSpan -> SpansResourceTest.this.createAndAssert(expectedSpan, apiKey, workspaceName));
+            var expectedSpans = getExpectedSpans.apply(spans);
+            var unexpectedSpans = getUnexpectedSpans.apply(spans);
 
             var filters = List.of(SpanFilter.builder()
                     .field(SpanField.START_TIME)
-                    .operator(Operator.EQUAL)
+                    .operator(operator)
                     .value(spans.getFirst().startTime().toString())
                     .build());
-            getAndAssertPage(workspaceName, projectName, filters, spans, expectedSpans, unexpectedSpans, apiKey);
+            getAndAssertPage(workspaceName, projectName, filters, spans, expectedSpans.reversed(), unexpectedSpans,
+                    apiKey);
         }
 
         @Test
-        void getByProjectName__whenFilterStartTimeGreaterThan__thenReturnSpansFiltered() {
+        void getSpansByProject__whenFilterStartTimeGreaterThan__thenReturnSpansFiltered() {
             String workspaceName = UUID.randomUUID().toString();
             String workspaceId = UUID.randomUUID().toString();
             String apiKey = UUID.randomUUID().toString();
@@ -1336,7 +1395,7 @@ class SpansResourceTest {
                             .startTime(Instant.now().minusSeconds(60 * 5))
                             .feedbackScores(null)
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.set(0, spans.getFirst().toBuilder()
                     .startTime(Instant.now().plusSeconds(60 * 5))
                     .build());
@@ -1357,7 +1416,7 @@ class SpansResourceTest {
         }
 
         @Test
-        void getByProjectName__whenFilterStartTimeGreaterThanEqual__thenReturnSpansFiltered() {
+        void getSpansByProject__whenFilterStartTimeGreaterThanEqual__thenReturnSpansFiltered() {
             String workspaceName = UUID.randomUUID().toString();
             String workspaceId = UUID.randomUUID().toString();
             String apiKey = UUID.randomUUID().toString();
@@ -1373,7 +1432,7 @@ class SpansResourceTest {
                             .startTime(Instant.now().minusSeconds(60 * 5))
                             .feedbackScores(null)
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.set(0, spans.getFirst().toBuilder()
                     .startTime(Instant.now().plusSeconds(60 * 5))
                     .build());
@@ -1394,7 +1453,7 @@ class SpansResourceTest {
         }
 
         @Test
-        void getByProjectName__whenFilterStartTimeLessThan__thenReturnSpansFiltered() {
+        void getSpansByProject__whenFilterStartTimeLessThan__thenReturnSpansFiltered() {
             String workspaceName = UUID.randomUUID().toString();
             String workspaceId = UUID.randomUUID().toString();
             String apiKey = UUID.randomUUID().toString();
@@ -1410,7 +1469,7 @@ class SpansResourceTest {
                             .startTime(Instant.now().plusSeconds(60 * 5))
                             .feedbackScores(null)
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.set(0, spans.getFirst().toBuilder()
                     .startTime(Instant.now().minusSeconds(60 * 5))
                     .build());
@@ -1431,7 +1490,7 @@ class SpansResourceTest {
         }
 
         @Test
-        void getByProjectName__whenFilterStartTimeLessThanEqual__thenReturnSpansFiltered() {
+        void getSpansByProject__whenFilterStartTimeLessThanEqual__thenReturnSpansFiltered() {
             String workspaceName = UUID.randomUUID().toString();
             String workspaceId = UUID.randomUUID().toString();
             String apiKey = UUID.randomUUID().toString();
@@ -1447,7 +1506,7 @@ class SpansResourceTest {
                             .startTime(Instant.now().plusSeconds(60 * 5))
                             .feedbackScores(null)
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.set(0, spans.getFirst().toBuilder()
                     .startTime(Instant.now().minusSeconds(60 * 5))
                     .build());
@@ -1468,7 +1527,7 @@ class SpansResourceTest {
         }
 
         @Test
-        void getByProjectName__whenFilterEndTimeEqual__thenReturnSpansFiltered() {
+        void getSpansByProject__whenFilterEndTimeEqual__thenReturnSpansFiltered() {
             String workspaceName = UUID.randomUUID().toString();
             String workspaceId = UUID.randomUUID().toString();
             String apiKey = UUID.randomUUID().toString();
@@ -1483,7 +1542,7 @@ class SpansResourceTest {
                             .projectName(projectName)
                             .feedbackScores(null)
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.forEach(expectedSpan -> SpansResourceTest.this.createAndAssert(expectedSpan, apiKey, workspaceName));
             var expectedSpans = List.of(spans.getFirst());
             var unexpectedSpans = List.of(podamFactory.manufacturePojo(Span.class).toBuilder()
@@ -1501,7 +1560,7 @@ class SpansResourceTest {
         }
 
         @Test
-        void getByProjectName__whenFilterInputEqual__thenReturnSpansFiltered() {
+        void getSpansByProject__whenFilterInputEqual__thenReturnSpansFiltered() {
             String workspaceName = UUID.randomUUID().toString();
             String workspaceId = UUID.randomUUID().toString();
             String apiKey = UUID.randomUUID().toString();
@@ -1516,7 +1575,7 @@ class SpansResourceTest {
                             .projectName(projectName)
                             .feedbackScores(null)
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.forEach(expectedSpan -> SpansResourceTest.this.createAndAssert(expectedSpan, apiKey, workspaceName));
             var expectedSpans = List.of(spans.getFirst());
             var unexpectedSpans = List.of(podamFactory.manufacturePojo(Span.class).toBuilder()
@@ -1534,7 +1593,7 @@ class SpansResourceTest {
         }
 
         @Test
-        void getByProjectName__whenFilterOutputEqual__thenReturnSpansFiltered() {
+        void getSpansByProject__whenFilterOutputEqual__thenReturnSpansFiltered() {
             String workspaceName = UUID.randomUUID().toString();
             String workspaceId = UUID.randomUUID().toString();
             String apiKey = UUID.randomUUID().toString();
@@ -1549,7 +1608,7 @@ class SpansResourceTest {
                             .projectName(projectName)
                             .feedbackScores(null)
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.forEach(expectedSpan -> SpansResourceTest.this.createAndAssert(expectedSpan, apiKey, workspaceName));
             var expectedSpans = List.of(spans.getFirst());
             var unexpectedSpans = List.of(podamFactory.manufacturePojo(Span.class).toBuilder()
@@ -1566,8 +1625,11 @@ class SpansResourceTest {
             getAndAssertPage(workspaceName, projectName, filters, spans, expectedSpans, unexpectedSpans, apiKey);
         }
 
-        @Test
-        void getByProjectName__whenFilterMetadataEqualString__thenReturnSpansFiltered() {
+        @ParameterizedTest
+        @MethodSource("equalAndNotEqualFilters")
+        void getSpansByProject__whenFilterMetadataEqualString__thenReturnSpansFiltered(Operator operator,
+                Function<List<Span>, List<Span>> getExpectedSpans,
+                Function<List<Span>, List<Span>> getUnexpectedSpans) {
             String workspaceName = UUID.randomUUID().toString();
             String workspaceId = UUID.randomUUID().toString();
             String apiKey = UUID.randomUUID().toString();
@@ -1584,30 +1646,27 @@ class SpansResourceTest {
                                     "version\"}]}"))
                             .feedbackScores(null)
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.set(0, spans.getFirst().toBuilder()
                     .metadata(JsonUtils.getJsonNodeFromString("{\"model\":[{\"year\":2024,\"version\":\"OpenAI, " +
                             "Chat-GPT 4.0\"}]}"))
                     .build());
             spans.forEach(expectedSpan -> SpansResourceTest.this.createAndAssert(expectedSpan, apiKey, workspaceName));
-            var expectedSpans = List.of(spans.getFirst());
-            var unexpectedSpans = List.of(podamFactory.manufacturePojo(Span.class).toBuilder()
-                    .projectId(null)
-                    .build());
-            unexpectedSpans.forEach(
-                    expectedSpan -> SpansResourceTest.this.createAndAssert(expectedSpan, apiKey, workspaceName));
+            var expectedSpans = getExpectedSpans.apply(spans);
+            var unexpectedSpans = getUnexpectedSpans.apply(spans);
 
             var filters = List.of(SpanFilter.builder()
                     .field(SpanField.METADATA)
-                    .operator(Operator.EQUAL)
+                    .operator(operator)
                     .key("$.model[0].version")
                     .value("OPENAI, CHAT-GPT 4.0")
                     .build());
-            getAndAssertPage(workspaceName, projectName, filters, spans, expectedSpans, unexpectedSpans, apiKey);
+            getAndAssertPage(workspaceName, projectName, filters, spans, expectedSpans.reversed(), unexpectedSpans,
+                    apiKey);
         }
 
         @Test
-        void getByProjectName__whenFilterMetadataEqualNumber__thenReturnSpansFiltered() {
+        void getSpansByProject__whenFilterMetadataEqualNumber__thenReturnSpansFiltered() {
             String workspaceName = UUID.randomUUID().toString();
             String workspaceId = UUID.randomUUID().toString();
             String apiKey = UUID.randomUUID().toString();
@@ -1624,7 +1683,7 @@ class SpansResourceTest {
                                     "version\"}]}"))
                             .feedbackScores(null)
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.set(0, spans.getFirst().toBuilder()
                     .metadata(JsonUtils.getJsonNodeFromString("{\"model\":[{\"year\":2023,\"version\":\"OpenAI, " +
                             "Chat-GPT 4.0\"}]}"))
@@ -1647,7 +1706,7 @@ class SpansResourceTest {
         }
 
         @Test
-        void getByProjectName__whenFilterMetadataEqualBoolean__thenReturnSpansFiltered() {
+        void getSpansByProject__whenFilterMetadataEqualBoolean__thenReturnSpansFiltered() {
             String workspaceName = UUID.randomUUID().toString();
             String workspaceId = UUID.randomUUID().toString();
             String apiKey = UUID.randomUUID().toString();
@@ -1665,7 +1724,7 @@ class SpansResourceTest {
                                             "version\"}]}"))
                             .feedbackScores(null)
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.set(0, spans.getFirst().toBuilder()
                     .metadata(JsonUtils.getJsonNodeFromString("{\"model\":[{\"year\":true,\"version\":\"OpenAI, " +
                             "Chat-GPT 4.0\"}]}"))
@@ -1688,7 +1747,7 @@ class SpansResourceTest {
         }
 
         @Test
-        void getByProjectName__whenFilterMetadataEqualNull__thenReturnSpansFiltered() {
+        void getSpansByProject__whenFilterMetadataEqualNull__thenReturnSpansFiltered() {
             String workspaceName = UUID.randomUUID().toString();
             String workspaceId = UUID.randomUUID().toString();
             String apiKey = UUID.randomUUID().toString();
@@ -1705,7 +1764,7 @@ class SpansResourceTest {
                                     "version\"}]}"))
                             .feedbackScores(null)
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.set(0, spans.getFirst().toBuilder()
                     .metadata(JsonUtils.getJsonNodeFromString("{\"model\":[{\"year\":null,\"version\":\"OpenAI, " +
                             "Chat-GPT 4.0\"}]}"))
@@ -1728,7 +1787,7 @@ class SpansResourceTest {
         }
 
         @Test
-        void getByProjectName__whenFilterMetadataContainsString__thenReturnSpansFiltered() {
+        void getSpansByProject__whenFilterMetadataContainsString__thenReturnSpansFiltered() {
             String workspaceName = UUID.randomUUID().toString();
             String workspaceId = UUID.randomUUID().toString();
             String apiKey = UUID.randomUUID().toString();
@@ -1745,7 +1804,7 @@ class SpansResourceTest {
                                     "version\"}]}"))
                             .feedbackScores(null)
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.set(0, spans.getFirst().toBuilder()
                     .metadata(JsonUtils.getJsonNodeFromString("{\"model\":[{\"year\":2024,\"version\":\"OpenAI, " +
                             "Chat-GPT 4.0\"}]}"))
@@ -1768,7 +1827,7 @@ class SpansResourceTest {
         }
 
         @Test
-        void getByProjectName__whenFilterMetadataContainsNumber__thenReturnSpansFiltered() {
+        void getSpansByProject__whenFilterMetadataContainsNumber__thenReturnSpansFiltered() {
             String workspaceName = UUID.randomUUID().toString();
             String workspaceId = UUID.randomUUID().toString();
             String apiKey = UUID.randomUUID().toString();
@@ -1785,7 +1844,7 @@ class SpansResourceTest {
                                     "four\",\"version\":\"OpenAI, Chat-GPT 4.0\"}]}"))
                             .feedbackScores(null)
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.set(0, spans.getFirst().toBuilder()
                     .metadata(JsonUtils.getJsonNodeFromString("{\"model\":[{\"year\":2023,\"version\":\"OpenAI, " +
                             "Chat-GPT 4.0\"}]}"))
@@ -1808,7 +1867,7 @@ class SpansResourceTest {
         }
 
         @Test
-        void getByProjectName__whenFilterMetadataContainsBoolean__thenReturnSpansFiltered() {
+        void getSpansByProject__whenFilterMetadataContainsBoolean__thenReturnSpansFiltered() {
             String workspaceName = UUID.randomUUID().toString();
             String workspaceId = UUID.randomUUID().toString();
             String apiKey = UUID.randomUUID().toString();
@@ -1826,7 +1885,7 @@ class SpansResourceTest {
                                             "version\"}]}"))
                             .feedbackScores(null)
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.set(0, spans.getFirst().toBuilder()
                     .metadata(JsonUtils.getJsonNodeFromString("{\"model\":[{\"year\":true,\"version\":\"OpenAI, " +
                             "Chat-GPT 4.0\"}]}"))
@@ -1849,7 +1908,7 @@ class SpansResourceTest {
         }
 
         @Test
-        void getByProjectName__whenFilterMetadataContainsNull__thenReturnSpansFiltered() {
+        void getSpansByProject__whenFilterMetadataContainsNull__thenReturnSpansFiltered() {
             String workspaceName = UUID.randomUUID().toString();
             String workspaceId = UUID.randomUUID().toString();
             String apiKey = UUID.randomUUID().toString();
@@ -1866,7 +1925,7 @@ class SpansResourceTest {
                                     "version\"}]}"))
                             .feedbackScores(null)
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.set(0, spans.getFirst().toBuilder()
                     .metadata(JsonUtils.getJsonNodeFromString("{\"model\":[{\"year\":null,\"version\":\"OpenAI, " +
                             "Chat-GPT 4.0\"}]}"))
@@ -1889,7 +1948,7 @@ class SpansResourceTest {
         }
 
         @Test
-        void getByProjectName__whenFilterMetadataGreaterThanNumber__thenReturnSpansFiltered() {
+        void getSpansByProject__whenFilterMetadataGreaterThanNumber__thenReturnSpansFiltered() {
             String workspaceName = UUID.randomUUID().toString();
             String workspaceId = UUID.randomUUID().toString();
             String apiKey = UUID.randomUUID().toString();
@@ -1906,7 +1965,7 @@ class SpansResourceTest {
                                     "\"version\":\"OpenAI, Chat-GPT 4.0\"}]}"))
                             .feedbackScores(null)
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.set(0, spans.getFirst().toBuilder()
                     .metadata(JsonUtils.getJsonNodeFromString("{\"model\":[{\"year\":2024,\"version\":\"OpenAI, " +
                             "Chat-GPT 4.0\"}]}"))
@@ -1929,7 +1988,7 @@ class SpansResourceTest {
         }
 
         @Test
-        void getByProjectName__whenFilterMetadataGreaterThanString__thenReturnSpansFiltered() {
+        void getSpansByProject__whenFilterMetadataGreaterThanString__thenReturnSpansFiltered() {
             String workspaceName = UUID.randomUUID().toString();
             String workspaceId = UUID.randomUUID().toString();
             String apiKey = UUID.randomUUID().toString();
@@ -1947,7 +2006,7 @@ class SpansResourceTest {
                                             "Chat-GPT 4.0\"}]}"))
                             .feedbackScores(null)
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.forEach(expectedSpan -> SpansResourceTest.this.createAndAssert(expectedSpan, apiKey, workspaceName));
             var expectedSpans = List.<Span>of();
             var unexpectedSpans = List.of(podamFactory.manufacturePojo(Span.class).toBuilder()
@@ -1966,7 +2025,7 @@ class SpansResourceTest {
         }
 
         @Test
-        void getByProjectName__whenFilterMetadataGreaterThanBoolean__thenReturnSpansFiltered() {
+        void getSpansByProject__whenFilterMetadataGreaterThanBoolean__thenReturnSpansFiltered() {
             String workspaceName = UUID.randomUUID().toString();
             String workspaceId = UUID.randomUUID().toString();
             String apiKey = UUID.randomUUID().toString();
@@ -1984,7 +2043,7 @@ class SpansResourceTest {
                                             "Chat-GPT 4.0\"}]}"))
                             .feedbackScores(null)
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.forEach(expectedSpan -> SpansResourceTest.this.createAndAssert(expectedSpan, apiKey, workspaceName));
             var expectedSpans = List.<Span>of();
             var unexpectedSpans = List.of(podamFactory.manufacturePojo(Span.class).toBuilder()
@@ -2003,7 +2062,7 @@ class SpansResourceTest {
         }
 
         @Test
-        void getByProjectName__whenFilterMetadataGreaterThanNull__thenReturnSpansFiltered() {
+        void getSpansByProject__whenFilterMetadataGreaterThanNull__thenReturnSpansFiltered() {
             String workspaceName = UUID.randomUUID().toString();
             String workspaceId = UUID.randomUUID().toString();
             String apiKey = UUID.randomUUID().toString();
@@ -2021,7 +2080,7 @@ class SpansResourceTest {
                                             "Chat-GPT 4.0\"}]}"))
                             .feedbackScores(null)
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.forEach(expectedSpan -> SpansResourceTest.this.createAndAssert(expectedSpan, apiKey, workspaceName));
             var expectedSpans = List.<Span>of();
             var unexpectedSpans = List.of(podamFactory.manufacturePojo(Span.class).toBuilder()
@@ -2040,7 +2099,7 @@ class SpansResourceTest {
         }
 
         @Test
-        void getByProjectName__whenFilterMetadataLessThanNumber__thenReturnSpansFiltered() {
+        void getSpansByProject__whenFilterMetadataLessThanNumber__thenReturnSpansFiltered() {
             String workspaceName = UUID.randomUUID().toString();
             String workspaceId = UUID.randomUUID().toString();
             String apiKey = UUID.randomUUID().toString();
@@ -2057,7 +2116,7 @@ class SpansResourceTest {
                                     "\"version\":\"OpenAI, Chat-GPT 4.0\"}]}"))
                             .feedbackScores(null)
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.set(0, spans.getFirst().toBuilder()
                     .metadata(JsonUtils.getJsonNodeFromString("{\"model\":[{\"year\":2024,\"version\":\"OpenAI, " +
                             "Chat-GPT 4.0\"}]}"))
@@ -2080,7 +2139,7 @@ class SpansResourceTest {
         }
 
         @Test
-        void getByProjectName__whenFilterMetadataLessThanString__thenReturnSpansFiltered() {
+        void getSpansByProject__whenFilterMetadataLessThanString__thenReturnSpansFiltered() {
             String workspaceName = UUID.randomUUID().toString();
             String workspaceId = UUID.randomUUID().toString();
             String apiKey = UUID.randomUUID().toString();
@@ -2098,7 +2157,7 @@ class SpansResourceTest {
                                             "Chat-GPT 4.0\"}]}"))
                             .feedbackScores(null)
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.forEach(expectedSpan -> SpansResourceTest.this.createAndAssert(expectedSpan, apiKey, workspaceName));
             var expectedSpans = List.<Span>of();
             var unexpectedSpans = List.of(podamFactory.manufacturePojo(Span.class).toBuilder()
@@ -2117,7 +2176,7 @@ class SpansResourceTest {
         }
 
         @Test
-        void getByProjectName__whenFilterMetadataLessThanBoolean__thenReturnSpansFiltered() {
+        void getSpansByProject__whenFilterMetadataLessThanBoolean__thenReturnSpansFiltered() {
             String workspaceName = UUID.randomUUID().toString();
             String workspaceId = UUID.randomUUID().toString();
             String apiKey = UUID.randomUUID().toString();
@@ -2135,7 +2194,7 @@ class SpansResourceTest {
                                             "Chat-GPT 4.0\"}]}"))
                             .feedbackScores(null)
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.forEach(expectedSpan -> SpansResourceTest.this.createAndAssert(expectedSpan, apiKey, workspaceName));
             var expectedSpans = List.<Span>of();
             var unexpectedSpans = List.of(podamFactory.manufacturePojo(Span.class).toBuilder()
@@ -2154,7 +2213,7 @@ class SpansResourceTest {
         }
 
         @Test
-        void getByProjectName__whenFilterMetadataLessThanNull__thenReturnSpansFiltered() {
+        void getSpansByProject__whenFilterMetadataLessThanNull__thenReturnSpansFiltered() {
             String workspaceName = UUID.randomUUID().toString();
             String workspaceId = UUID.randomUUID().toString();
             String apiKey = UUID.randomUUID().toString();
@@ -2172,7 +2231,7 @@ class SpansResourceTest {
                                             "Chat-GPT 4.0\"}]}"))
                             .feedbackScores(null)
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.forEach(expectedSpan -> SpansResourceTest.this.createAndAssert(expectedSpan, apiKey, workspaceName));
             var expectedSpans = List.<Span>of();
             var unexpectedSpans = List.of(podamFactory.manufacturePojo(Span.class).toBuilder()
@@ -2191,7 +2250,7 @@ class SpansResourceTest {
         }
 
         @Test
-        void getByProjectName__whenFilterTagsContains__thenReturnSpansFiltered() {
+        void getSpansByProject__whenFilterTagsContains__thenReturnSpansFiltered() {
             String workspaceName = UUID.randomUUID().toString();
             String workspaceId = UUID.randomUUID().toString();
             String apiKey = UUID.randomUUID().toString();
@@ -2206,7 +2265,7 @@ class SpansResourceTest {
                             .projectName(projectName)
                             .feedbackScores(null)
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.forEach(expectedSpan -> SpansResourceTest.this.createAndAssert(expectedSpan, apiKey, workspaceName));
             var expectedSpans = List.of(spans.getFirst());
             var unexpectedSpans = List.of(podamFactory.manufacturePojo(Span.class).toBuilder()
@@ -2227,7 +2286,7 @@ class SpansResourceTest {
             getAndAssertPage(workspaceName, projectName, filters, spans, expectedSpans, unexpectedSpans, apiKey);
         }
 
-        static Stream<Arguments> getByProjectName__whenFilterUsage__thenReturnSpansFiltered() {
+        static Stream<Arguments> getSpansByProject__whenFilterUsage__thenReturnSpansFiltered() {
             return Stream.of(
                     arguments("completion_tokens", SpanField.USAGE_COMPLETION_TOKENS),
                     arguments("prompt_tokens", SpanField.USAGE_PROMPT_TOKENS),
@@ -2235,8 +2294,8 @@ class SpansResourceTest {
         }
 
         @ParameterizedTest
-        @MethodSource("getByProjectName__whenFilterUsage__thenReturnSpansFiltered")
-        void getByProjectName__whenFilterUsageEqual__thenReturnSpansFiltered(String usageKey, Field field) {
+        @MethodSource("getSpansByProject__whenFilterUsage__thenReturnSpansFiltered")
+        void getSpansByProject__whenFilterUsageEqual__thenReturnSpansFiltered(String usageKey, Field field) {
             String workspaceName = UUID.randomUUID().toString();
             String workspaceId = UUID.randomUUID().toString();
             String apiKey = UUID.randomUUID().toString();
@@ -2284,8 +2343,8 @@ class SpansResourceTest {
         }
 
         @ParameterizedTest
-        @MethodSource("getByProjectName__whenFilterUsage__thenReturnSpansFiltered")
-        void getByProjectName__whenFilterUsageGreaterThan__thenReturnSpansFiltered(String usageKey, Field field) {
+        @MethodSource("getSpansByProject__whenFilterUsage__thenReturnSpansFiltered")
+        void getSpansByProject__whenFilterUsageGreaterThan__thenReturnSpansFiltered(String usageKey, Field field) {
             String workspaceName = UUID.randomUUID().toString();
             String workspaceId = UUID.randomUUID().toString();
             String apiKey = UUID.randomUUID().toString();
@@ -2301,7 +2360,7 @@ class SpansResourceTest {
                             .usage(Map.of(usageKey, 123))
                             .feedbackScores(null)
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.set(0, spans.getFirst().toBuilder()
                     .usage(Map.of(usageKey, 456))
                     .build());
@@ -2323,8 +2382,8 @@ class SpansResourceTest {
         }
 
         @ParameterizedTest
-        @MethodSource("getByProjectName__whenFilterUsage__thenReturnSpansFiltered")
-        void getByProjectName__whenFilterUsageGreaterThanEqual__thenReturnSpansFiltered(String usageKey, Field field) {
+        @MethodSource("getSpansByProject__whenFilterUsage__thenReturnSpansFiltered")
+        void getSpansByProject__whenFilterUsageGreaterThanEqual__thenReturnSpansFiltered(String usageKey, Field field) {
             String workspaceName = UUID.randomUUID().toString();
             String workspaceId = UUID.randomUUID().toString();
             String apiKey = UUID.randomUUID().toString();
@@ -2340,7 +2399,7 @@ class SpansResourceTest {
                             .usage(Map.of(usageKey, 123))
                             .feedbackScores(null)
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.set(0, spans.getFirst().toBuilder()
                     .usage(Map.of(usageKey, 456))
                     .build());
@@ -2362,8 +2421,8 @@ class SpansResourceTest {
         }
 
         @ParameterizedTest
-        @MethodSource("getByProjectName__whenFilterUsage__thenReturnSpansFiltered")
-        void getByProjectName__whenFilterUsageLessThan__thenReturnSpansFiltered(String usageKey, Field field) {
+        @MethodSource("getSpansByProject__whenFilterUsage__thenReturnSpansFiltered")
+        void getSpansByProject__whenFilterUsageLessThan__thenReturnSpansFiltered(String usageKey, Field field) {
             String workspaceName = UUID.randomUUID().toString();
             String workspaceId = UUID.randomUUID().toString();
             String apiKey = UUID.randomUUID().toString();
@@ -2379,7 +2438,7 @@ class SpansResourceTest {
                             .usage(Map.of(usageKey, 456))
                             .feedbackScores(null)
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.set(0, spans.getFirst().toBuilder()
                     .usage(Map.of(usageKey, 123))
                     .build());
@@ -2401,8 +2460,8 @@ class SpansResourceTest {
         }
 
         @ParameterizedTest
-        @MethodSource("getByProjectName__whenFilterUsage__thenReturnSpansFiltered")
-        void getByProjectName__whenFilterUsageLessThanEqual__thenReturnSpansFiltered(String usageKey, Field field) {
+        @MethodSource("getSpansByProject__whenFilterUsage__thenReturnSpansFiltered")
+        void getSpansByProject__whenFilterUsageLessThanEqual__thenReturnSpansFiltered(String usageKey, Field field) {
             String workspaceName = UUID.randomUUID().toString();
             String workspaceId = UUID.randomUUID().toString();
             String apiKey = UUID.randomUUID().toString();
@@ -2418,7 +2477,7 @@ class SpansResourceTest {
                             .usage(Map.of(usageKey, 456))
                             .feedbackScores(null)
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.set(0, spans.getFirst().toBuilder()
                     .usage(Map.of(usageKey, 123))
                     .build());
@@ -2439,8 +2498,11 @@ class SpansResourceTest {
             getAndAssertPage(workspaceName, projectName, filters, spans, expectedSpans, unexpectedSpans, apiKey);
         }
 
-        @Test
-        void getByProjectName__whenFilterFeedbackScoresEqual__thenReturnSpansFiltered() {
+        @ParameterizedTest
+        @MethodSource
+        void getSpansByProject__whenFilterFeedbackScoresEqual_NotEqual__thenReturnSpansFiltered(Operator operator,
+                Function<List<Span>, List<Span>> getExpectedSpans,
+                Function<List<Span>, List<Span>> getUnexpectedSpans) {
 
             String workspaceName = UUID.randomUUID().toString();
             String workspaceId = UUID.randomUUID().toString();
@@ -2459,9 +2521,9 @@ class SpansResourceTest {
                                             .map(feedbackScore -> feedbackScore.toBuilder()
                                                     .value(podamFactory.manufacturePojo(BigDecimal.class))
                                                     .build())
-                                            .collect(Collectors.toList()))
+                                            .collect(toList()))
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
 
             spans.set(1, spans.get(1).toBuilder()
                     .feedbackScores(
@@ -2474,35 +2536,38 @@ class SpansResourceTest {
                             .forEach(
                                     feedbackScore -> createAndAssert(span.id(), feedbackScore, workspaceName, apiKey)));
 
-            var expectedSpans = List.of(spans.getFirst());
-            var unexpectedSpans = List.of(podamFactory.manufacturePojo(Span.class).toBuilder()
-                    .projectId(null)
-                    .build());
-            unexpectedSpans.forEach(
-                    expectedSpan -> SpansResourceTest.this.createAndAssert(expectedSpan, apiKey, workspaceName));
-            unexpectedSpans.forEach(
-                    span -> span.feedbackScores()
-                            .forEach(
-                                    feedbackScore -> createAndAssert(span.id(), feedbackScore, workspaceName, apiKey)));
+            var expectedSpans = getExpectedSpans.apply(spans);
+            var unexpectedSpans = getUnexpectedSpans.apply(spans);
 
             var filters = List.of(
                     SpanFilter.builder()
                             .field(SpanField.FEEDBACK_SCORES)
-                            .operator(Operator.EQUAL)
+                            .operator(operator)
                             .key(spans.getFirst().feedbackScores().get(1).name().toUpperCase())
                             .value(spans.getFirst().feedbackScores().get(1).value().toString())
                             .build(),
                     SpanFilter.builder()
                             .field(SpanField.FEEDBACK_SCORES)
-                            .operator(Operator.EQUAL)
+                            .operator(operator)
                             .key(spans.getFirst().feedbackScores().get(2).name().toUpperCase())
                             .value(spans.getFirst().feedbackScores().get(2).value().toString())
                             .build());
-            getAndAssertPage(workspaceName, projectName, filters, spans, expectedSpans, unexpectedSpans, apiKey);
+            getAndAssertPage(workspaceName, projectName, filters, spans, expectedSpans.reversed(), unexpectedSpans,
+                    apiKey);
+        }
+
+        private Stream<Arguments> getSpansByProject__whenFilterFeedbackScoresEqual_NotEqual__thenReturnSpansFiltered() {
+            return Stream.of(
+                    Arguments.of(Operator.EQUAL,
+                            (Function<List<Span>, List<Span>>) spans -> List.of(spans.getFirst()),
+                            (Function<List<Span>, List<Span>>) spans -> spans.subList(1, spans.size())),
+                    Arguments.of(Operator.NOT_EQUAL,
+                            (Function<List<Span>, List<Span>>) spans -> spans.subList(2, spans.size()),
+                            (Function<List<Span>, List<Span>>) spans -> spans.subList(0, 2)));
         }
 
         @Test
-        void getByProjectName__whenFilterFeedbackScoresGreaterThan__thenReturnSpansFiltered() {
+        void getSpansByProject__whenFilterFeedbackScoresGreaterThan__thenReturnSpansFiltered() {
             String workspaceName = UUID.randomUUID().toString();
             String workspaceId = UUID.randomUUID().toString();
             String apiKey = UUID.randomUUID().toString();
@@ -2520,10 +2585,10 @@ class SpansResourceTest {
                                             .map(feedbackScore -> feedbackScore.toBuilder()
                                                     .value(podamFactory.manufacturePojo(BigDecimal.class))
                                                     .build())
-                                            .collect(Collectors.toList()),
+                                            .collect(toList()),
                                     2, 1234.5678))
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.set(0, spans.getFirst().toBuilder()
                     .feedbackScores(updateFeedbackScore(spans.getFirst().feedbackScores(), 2, 2345.6789))
                     .build());
@@ -2559,7 +2624,7 @@ class SpansResourceTest {
         }
 
         @Test
-        void getByProjectName__whenFilterFeedbackScoresGreaterThanEqual__thenReturnSpansFiltered() {
+        void getSpansByProject__whenFilterFeedbackScoresGreaterThanEqual__thenReturnSpansFiltered() {
             String workspaceName = UUID.randomUUID().toString();
             String workspaceId = UUID.randomUUID().toString();
             String apiKey = UUID.randomUUID().toString();
@@ -2575,9 +2640,9 @@ class SpansResourceTest {
                                     .map(feedbackScore -> feedbackScore.toBuilder()
                                             .value(podamFactory.manufacturePojo(BigDecimal.class))
                                             .build())
-                                    .collect(Collectors.toList()), 2, 1234.5678))
+                                    .collect(toList()), 2, 1234.5678))
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.set(0, spans.getFirst().toBuilder()
                     .feedbackScores(updateFeedbackScore(spans.getFirst().feedbackScores(), 2, 2345.6789))
                     .build());
@@ -2608,7 +2673,7 @@ class SpansResourceTest {
         }
 
         @Test
-        void getByProjectName__whenFilterFeedbackScoresLessThan__thenReturnSpansFiltered() {
+        void getSpansByProject__whenFilterFeedbackScoresLessThan__thenReturnSpansFiltered() {
             String workspaceName = UUID.randomUUID().toString();
             String workspaceId = UUID.randomUUID().toString();
             String apiKey = UUID.randomUUID().toString();
@@ -2625,9 +2690,9 @@ class SpansResourceTest {
                                     .map(feedbackScore -> feedbackScore.toBuilder()
                                             .value(podamFactory.manufacturePojo(BigDecimal.class))
                                             .build())
-                                    .collect(Collectors.toList()), 2, 2345.6789))
+                                    .collect(toList()), 2, 2345.6789))
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.set(0, spans.getFirst().toBuilder()
                     .feedbackScores(updateFeedbackScore(spans.getFirst().feedbackScores(), 2, 1234.5678))
                     .build());
@@ -2658,7 +2723,7 @@ class SpansResourceTest {
         }
 
         @Test
-        void getByProjectName__whenFilterFeedbackScoresLessThanEqual__thenReturnSpansFiltered() {
+        void getSpansByProject__whenFilterFeedbackScoresLessThanEqual__thenReturnSpansFiltered() {
             String workspaceName = UUID.randomUUID().toString();
             String workspaceId = UUID.randomUUID().toString();
             String apiKey = UUID.randomUUID().toString();
@@ -2675,9 +2740,9 @@ class SpansResourceTest {
                                     .map(feedbackScore -> feedbackScore.toBuilder()
                                             .value(podamFactory.manufacturePojo(BigDecimal.class))
                                             .build())
-                                    .collect(Collectors.toList()), 2, 2345.6789))
+                                    .collect(toList()), 2, 2345.6789))
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.set(0, spans.getFirst().toBuilder()
                     .feedbackScores(updateFeedbackScore(spans.getFirst().feedbackScores(), 2, 1234.5678))
                     .build());
@@ -2707,7 +2772,80 @@ class SpansResourceTest {
             getAndAssertPage(workspaceName, projectName, filters, spans, expectedSpans, unexpectedSpans, apiKey);
         }
 
-        static Stream<Filter> getByProjectName__whenFilterInvalidOperatorForFieldType__thenReturn400() {
+        Stream<Arguments> getSpansByProject__whenFilterByDuration__thenReturnSpansFiltered() {
+            return Stream.of(
+                    arguments(Operator.EQUAL,
+                            Duration.ofMillis(1L).toNanos() / 1000, 1.0),
+                    arguments(Operator.GREATER_THAN,
+                            Duration.ofMillis(8L).toNanos() / 1000, 7.0),
+                    arguments(Operator.GREATER_THAN_EQUAL,
+                            Duration.ofMillis(1L).toNanos() / 1000, 1.0),
+                    arguments(Operator.GREATER_THAN_EQUAL,
+                            Duration.ofMillis(1L).plusNanos(1000).toNanos() / 1000, 1.0),
+                    arguments(Operator.LESS_THAN,
+                            Duration.ofMillis(1L).plusNanos(1).toNanos() / 1000, 2.0),
+                    arguments(Operator.LESS_THAN_EQUAL,
+                            Duration.ofMillis(1L).toNanos() / 1000, 1.0),
+                    arguments(Operator.LESS_THAN_EQUAL,
+                            Duration.ofMillis(1L).toNanos() / 1000, 2.0));
+        }
+
+        @ParameterizedTest
+        @MethodSource
+        void getSpansByProject__whenFilterByDuration__thenReturnSpansFiltered(Operator operator, long end,
+                double duration) {
+            String workspaceName = UUID.randomUUID().toString();
+            String workspaceId = UUID.randomUUID().toString();
+            String apiKey = UUID.randomUUID().toString();
+
+            mockTargetWorkspace(apiKey, workspaceName, workspaceId);
+
+            var projectName = generator.generate().toString();
+            var spans = PodamFactoryUtils.manufacturePojoList(podamFactory, Span.class)
+                    .stream()
+                    .map(span -> {
+                        Instant now = Instant.now();
+                        return span.toBuilder()
+                                .projectId(null)
+                                .projectName(projectName)
+                                .feedbackScores(null)
+                                .startTime(now)
+                                .endTime(Set.of(Operator.LESS_THAN, Operator.LESS_THAN_EQUAL).contains(operator)
+                                        ? Instant.now().plusSeconds(2)
+                                        : now.plusNanos(1000))
+                                .build();
+                    })
+                    .collect(Collectors.toCollection(ArrayList::new));
+
+            var start = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+            spans.set(0, spans.getFirst().toBuilder()
+                    .startTime(start)
+                    .endTime(start.plus(end, ChronoUnit.MICROS))
+                    .build());
+
+            spans.forEach(expectedSpan -> createAndAssert(expectedSpan, apiKey, workspaceName));
+
+            var expectedSpans = List.of(spans.getFirst());
+
+            var unexpectedSpans = PodamFactoryUtils.manufacturePojoList(podamFactory, Span.class).stream()
+                    .map(span -> span.toBuilder()
+                            .projectId(null)
+                            .build())
+                    .toList();
+
+            unexpectedSpans.forEach(expectedSpan -> createAndAssert(expectedSpan, apiKey, workspaceName));
+
+            var filters = List.of(
+                    SpanFilter.builder()
+                            .field(SpanField.DURATION)
+                            .operator(operator)
+                            .value(String.valueOf(duration))
+                            .build());
+
+            getAndAssertPage(workspaceName, projectName, filters, spans, expectedSpans, unexpectedSpans, apiKey);
+        }
+
+        static Stream<Filter> getSpansByProject__whenFilterInvalidOperatorForFieldType__thenReturn400() {
             return Stream.of(
                     SpanFilter.builder()
                             .field(SpanField.START_TIME)
@@ -2973,14 +3111,34 @@ class SpansResourceTest {
                             .field(SpanField.TAGS)
                             .operator(Operator.LESS_THAN_EQUAL)
                             .value(RandomStringUtils.randomAlphanumeric(10))
+                            .build(),
+                    SpanFilter.builder()
+                            .field(SpanField.DURATION)
+                            .operator(Operator.CONTAINS)
+                            .value("1")
+                            .build(),
+                    SpanFilter.builder()
+                            .field(SpanField.DURATION)
+                            .operator(Operator.ENDS_WITH)
+                            .value("1")
+                            .build(),
+                    SpanFilter.builder()
+                            .field(SpanField.DURATION)
+                            .operator(Operator.NOT_CONTAINS)
+                            .value("1")
+                            .build(),
+                    SpanFilter.builder()
+                            .field(SpanField.DURATION)
+                            .operator(Operator.STARTS_WITH)
+                            .value("1")
                             .build());
         }
 
         @ParameterizedTest
         @MethodSource
-        void getByProjectName__whenFilterInvalidOperatorForFieldType__thenReturn400(Filter filter) {
+        void getSpansByProject__whenFilterInvalidOperatorForFieldType__thenReturn400(Filter filter) {
             var expectedError = new io.dropwizard.jersey.errors.ErrorMessage(
-                    400,
+                    HttpStatus.SC_BAD_REQUEST,
                     "Invalid operator '%s' for field '%s' of type '%s'".formatted(
                             filter.operator().getQueryParamOperator(),
                             filter.field().getQueryParamField(),
@@ -2995,13 +3153,13 @@ class SpansResourceTest {
                     .header(WORKSPACE_HEADER, TEST_WORKSPACE)
                     .get();
 
-            assertThat(actualResponse.getStatusInfo().getStatusCode()).isEqualTo(400);
+            assertThat(actualResponse.getStatusInfo().getStatusCode()).isEqualTo(HttpStatus.SC_BAD_REQUEST);
 
             var actualError = actualResponse.readEntity(io.dropwizard.jersey.errors.ErrorMessage.class);
             assertThat(actualError).isEqualTo(expectedError);
         }
 
-        static Stream<Filter> getByProjectName__whenFilterInvalidValueOrKeyForFieldType__thenReturn400() {
+        static Stream<Filter> getSpansByProject__whenFilterInvalidValueOrKeyForFieldType__thenReturn400() {
             return Stream.of(
                     SpanFilter.builder()
                             .field(SpanField.ID)
@@ -3076,12 +3234,22 @@ class SpansResourceTest {
                             .operator(Operator.EQUAL)
                             .value("")
                             .key("hallucination")
+                            .build(),
+                    SpanFilter.builder()
+                            .field(SpanField.DURATION)
+                            .operator(Operator.EQUAL)
+                            .value("")
+                            .build(),
+                    SpanFilter.builder()
+                            .field(SpanField.DURATION)
+                            .operator(Operator.EQUAL)
+                            .value(RandomStringUtils.randomAlphanumeric(5))
                             .build());
         }
 
         @ParameterizedTest
         @MethodSource
-        void getByProjectName__whenFilterInvalidValueOrKeyForFieldType__thenReturn400(Filter filter) {
+        void getSpansByProject__whenFilterInvalidValueOrKeyForFieldType__thenReturn400(Filter filter) {
             String workspaceName = UUID.randomUUID().toString();
             String workspaceId = UUID.randomUUID().toString();
             String apiKey = UUID.randomUUID().toString();
@@ -3089,7 +3257,7 @@ class SpansResourceTest {
             mockTargetWorkspace(apiKey, workspaceName, workspaceId);
 
             var expectedError = new io.dropwizard.jersey.errors.ErrorMessage(
-                    400,
+                    HttpStatus.SC_BAD_REQUEST,
                     "Invalid value '%s' or key '%s' for field '%s' of type '%s'".formatted(
                             filter.value(),
                             filter.key(),
@@ -3106,7 +3274,7 @@ class SpansResourceTest {
                     .header(WORKSPACE_HEADER, workspaceName)
                     .get();
 
-            assertThat(actualResponse.getStatusInfo().getStatusCode()).isEqualTo(400);
+            assertThat(actualResponse.getStatusInfo().getStatusCode()).isEqualTo(HttpStatus.SC_BAD_REQUEST);
 
             var actualError = actualResponse.readEntity(io.dropwizard.jersey.errors.ErrorMessage.class);
             assertThat(actualError).isEqualTo(expectedError);
@@ -3220,6 +3388,13 @@ class SpansResourceTest {
                                     .withIgnoredFields(IGNORED_FIELDS_SCORES)
                                     .build())
                     .isEqualTo(expectedFeedbackScores);
+            var expected = DurationUtils.getDurationInMillisWithSubMilliPrecision(
+                    expectedSpan.startTime(), expectedSpan.endTime());
+            if (actualSpan.duration() == null || expected == null) {
+                assertThat(actualSpan.duration()).isEqualTo(expected);
+            } else {
+                assertThat(actualSpan.duration()).isEqualTo(expected, within(0.001));
+            }
 
             if (actualSpan.feedbackScores() != null) {
                 actualSpan.feedbackScores().forEach(feedbackScore -> {
@@ -3233,29 +3408,7 @@ class SpansResourceTest {
     }
 
     private UUID createAndAssert(Span expectedSpan, String apiKey, String workspaceName) {
-        try (var actualResponse = client.target(URL_TEMPLATE.formatted(baseURI))
-                .request()
-                .header(HttpHeaders.AUTHORIZATION, apiKey)
-                .header(WORKSPACE_HEADER, workspaceName)
-                .post(Entity.json(expectedSpan))) {
-
-            var actualHeaderString = actualResponse.getHeaderString("Location");
-            assertThat(actualResponse.getStatusInfo().getStatusCode()).isEqualTo(201);
-            assertThat(actualResponse.hasEntity()).isFalse();
-
-            UUID expectedSpanId;
-            if (expectedSpan.id() != null) {
-                expectedSpanId = expectedSpan.id();
-            } else {
-                expectedSpanId = TestUtils.getIdFromLocation(actualResponse.getLocation());
-            }
-
-            assertThat(actualHeaderString).isEqualTo(URL_TEMPLATE.formatted(baseURI)
-                    .concat("/")
-                    .concat(expectedSpanId.toString()));
-
-            return expectedSpanId;
-        }
+        return spanResourceClient.createSpan(expectedSpan, apiKey, workspaceName);
     }
 
     private void createAndAssert(UUID entityId, FeedbackScore score, String workspaceName, String apiKey) {
@@ -3336,7 +3489,7 @@ class SpansResourceTest {
 
         Map<String, String> jsonMap = IntStream.range(0, size)
                 .mapToObj(i -> Map.entry(RandomStringUtils.randomAlphabetic(10), RandomStringUtils.randomAscii(size)))
-                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+                .collect(toMap(Map.Entry::getKey, Map.Entry::getValue));
 
         var expectedSpan = podamFactory.manufacturePojo(Span.class).toBuilder()
                 .projectId(null)
@@ -3409,6 +3562,41 @@ class SpansResourceTest {
 
             var errorMessage = actualResponse.readEntity(ErrorMessage.class);
             assertThat(errorMessage.errors()).contains("Span already exists");
+        }
+    }
+
+    @Test
+    void testDeserializationErrorOnSpanCreate() {
+        var projectName = RandomStringUtils.randomAlphanumeric(10);
+        var traceId = generator.generate();
+
+        String workspaceName = UUID.randomUUID().toString();
+        String workspaceId = UUID.randomUUID().toString();
+        String apiKey = UUID.randomUUID().toString();
+
+        mockTargetWorkspace(apiKey, workspaceName, workspaceId);
+
+        var span = podamFactory.manufacturePojo(Span.class).toBuilder()
+                .projectId(null)
+                .projectName(projectName)
+                .traceId(traceId)
+                .feedbackScores(null)
+                .build();
+
+        String spanStr = JsonUtils.writeValueAsString(span);
+        // Make timestamps invalid
+        String invalidSpanStr = spanStr.replaceAll("Z\"", "\"");
+
+        try (var actualResponse = client.target(URL_TEMPLATE.formatted(baseURI))
+                .request()
+                .header(HttpHeaders.AUTHORIZATION, apiKey)
+                .header(WORKSPACE_HEADER, workspaceName)
+                .post(Entity.json(JsonUtils.getJsonNodeFromString(invalidSpanStr)))) {
+
+            assertThat(actualResponse.getStatusInfo().getStatusCode()).isEqualTo(400);
+            assertThat(actualResponse.hasEntity()).isTrue();
+            var errorMessage = actualResponse.readEntity(ErrorMessage.class);
+            assertThat(errorMessage.errors().getFirst()).contains("Cannot deserialize value of type");
         }
     }
 
@@ -3628,6 +3816,13 @@ class SpansResourceTest {
             assertThat(actualSpan.lastUpdatedAt()).isAfter(expectedSpan.lastUpdatedAt());
             assertThat(actualSpan.createdBy()).isEqualTo(USER);
             assertThat(actualSpan.lastUpdatedBy()).isEqualTo(USER);
+            var expected = DurationUtils.getDurationInMillisWithSubMilliPrecision(
+                    expectedSpan.startTime(), expectedSpan.endTime());
+            if (actualSpan.duration() == null || expected == null) {
+                assertThat(actualSpan.duration()).isEqualTo(expected);
+            } else {
+                assertThat(actualSpan.duration()).isEqualTo(expected, within(0.001));
+            }
             return actualSpan;
         }
     }
@@ -4288,6 +4483,7 @@ class SpansResourceTest {
                     .endTime(spanUpdate.endTime())
                     .tags(spanUpdate.tags())
                     .usage(spanUpdate.usage())
+                    .errorInfo(spanUpdate.errorInfo())
                     .build();
 
             getAndAssert(updatedSpan, API_KEY, TEST_WORKSPACE);
@@ -4986,6 +5182,8 @@ class SpansResourceTest {
                             .startTime(generateStartTime())
                             .projectName(projectName)
                             .feedbackScores(null)
+                            .model(spanResourceClient.randomModelPrice().getName())
+                            .usage(spanResourceClient.getTokenUsage())
                             .build())
                     .toList();
 
@@ -5021,6 +5219,8 @@ class SpansResourceTest {
                             .startTime(generateStartTime())
                             .projectName(projectName)
                             .feedbackScores(null)
+                            .model(spanResourceClient.randomModelPrice().getName())
+                            .usage(spanResourceClient.getTokenUsage())
                             .build())
                     .toList();
             batchCreateAndAssert(spans, apiKey, workspaceName);
@@ -5095,6 +5295,8 @@ class SpansResourceTest {
                             .traceId(traceId)
                             .type(type)
                             .feedbackScores(null)
+                            .model(spanResourceClient.randomModelPrice().getName())
+                            .usage(spanResourceClient.getTokenUsage())
                             .build())
                     .toList();
 
@@ -5133,8 +5335,10 @@ class SpansResourceTest {
                             .startTime(generateStartTime())
                             .projectName(projectName)
                             .feedbackScores(null)
+                            .model(spanResourceClient.randomModelPrice().getName())
+                            .usage(spanResourceClient.getTokenUsage())
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
 
             batchCreateAndAssert(spans, apiKey, workspaceName);
 
@@ -5179,8 +5383,10 @@ class SpansResourceTest {
                             .startTime(generateStartTime())
                             .projectName(projectName)
                             .feedbackScores(null)
+                            .model(spanResourceClient.randomModelPrice().getName())
+                            .usage(spanResourceClient.getTokenUsage())
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
 
             batchCreateAndAssert(spans, apiKey, workspaceName);
 
@@ -5219,8 +5425,10 @@ class SpansResourceTest {
                             .startTime(generateStartTime())
                             .projectName(projectName)
                             .feedbackScores(null)
+                            .model(spanResourceClient.randomModelPrice().getName())
+                            .usage(spanResourceClient.getTokenUsage())
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
 
             batchCreateAndAssert(spans, apiKey, workspaceName);
 
@@ -5257,8 +5465,10 @@ class SpansResourceTest {
                             .projectName(projectName)
                             .startTime(generateStartTime())
                             .feedbackScores(null)
+                            .model(spanResourceClient.randomModelPrice().getName())
+                            .usage(spanResourceClient.getTokenUsage())
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
 
             batchCreateAndAssert(spans, apiKey, workspaceName);
 
@@ -5297,8 +5507,10 @@ class SpansResourceTest {
                             .projectName(projectName)
                             .startTime(generateStartTime())
                             .feedbackScores(null)
+                            .model(spanResourceClient.randomModelPrice().getName())
+                            .usage(spanResourceClient.getTokenUsage())
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
 
             batchCreateAndAssert(spans, apiKey, workspaceName);
 
@@ -5339,8 +5551,10 @@ class SpansResourceTest {
                             .startTime(generateStartTime())
                             .name(spanName)
                             .feedbackScores(null)
+                            .model(spanResourceClient.randomModelPrice().getName())
+                            .usage(spanResourceClient.getTokenUsage())
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
 
             spans.set(0, spans.getFirst().toBuilder()
                     .name(generator.generate().toString())
@@ -5382,8 +5596,10 @@ class SpansResourceTest {
                             .projectName(projectName)
                             .startTime(generateStartTime())
                             .feedbackScores(null)
+                            .model(spanResourceClient.randomModelPrice().getName())
+                            .usage(spanResourceClient.getTokenUsage())
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
 
             batchCreateAndAssert(spans, apiKey, workspaceName);
 
@@ -5421,8 +5637,10 @@ class SpansResourceTest {
                             .projectName(projectName)
                             .startTime(Instant.now().minusSeconds(60 * 5))
                             .feedbackScores(null)
+                            .model(spanResourceClient.randomModelPrice().getName())
+                            .usage(spanResourceClient.getTokenUsage())
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.set(0, spans.getFirst().toBuilder()
                     .startTime(Instant.now().plusSeconds(60 * 5))
                     .build());
@@ -5463,8 +5681,10 @@ class SpansResourceTest {
                             .projectName(projectName)
                             .startTime(Instant.now().minusSeconds(60 * 5))
                             .feedbackScores(null)
+                            .model(spanResourceClient.randomModelPrice().getName())
+                            .usage(spanResourceClient.getTokenUsage())
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.set(0, spans.getFirst().toBuilder()
                     .startTime(Instant.now().plusSeconds(60 * 5))
                     .build());
@@ -5504,8 +5724,10 @@ class SpansResourceTest {
                             .projectName(projectName)
                             .startTime(Instant.now().plusSeconds(60 * 5))
                             .feedbackScores(null)
+                            .model(spanResourceClient.randomModelPrice().getName())
+                            .usage(spanResourceClient.getTokenUsage())
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.set(0, spans.getFirst().toBuilder()
                     .startTime(Instant.now().minusSeconds(60 * 5))
                     .build());
@@ -5548,8 +5770,10 @@ class SpansResourceTest {
                             .startTime(generateStartTime())
                             .startTime(Instant.now().plusSeconds(60 * 5))
                             .feedbackScores(null)
+                            .model(spanResourceClient.randomModelPrice().getName())
+                            .usage(spanResourceClient.getTokenUsage())
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.set(0, spans.getFirst().toBuilder()
                     .startTime(Instant.now().minusSeconds(60 * 5))
                     .build());
@@ -5591,8 +5815,10 @@ class SpansResourceTest {
                             .projectName(projectName)
                             .startTime(generateStartTime())
                             .feedbackScores(null)
+                            .model(spanResourceClient.randomModelPrice().getName())
+                            .usage(spanResourceClient.getTokenUsage())
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
 
             batchCreateAndAssert(spans, apiKey, workspaceName);
 
@@ -5631,8 +5857,10 @@ class SpansResourceTest {
                             .projectName(projectName)
                             .startTime(generateStartTime())
                             .feedbackScores(null)
+                            .model(spanResourceClient.randomModelPrice().getName())
+                            .usage(spanResourceClient.getTokenUsage())
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
 
             batchCreateAndAssert(spans, apiKey, workspaceName);
             var expectedSpans = List.of(spans.getFirst());
@@ -5669,8 +5897,10 @@ class SpansResourceTest {
                             .projectName(projectName)
                             .startTime(generateStartTime())
                             .feedbackScores(null)
+                            .model(spanResourceClient.randomModelPrice().getName())
+                            .usage(spanResourceClient.getTokenUsage())
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
 
             batchCreateAndAssert(spans, apiKey, workspaceName);
 
@@ -5710,8 +5940,10 @@ class SpansResourceTest {
                             .metadata(JsonUtils.getJsonNodeFromString("{\"model\":[{\"year\":2024,\"version\":\"Some " +
                                     "version\"}]}"))
                             .feedbackScores(null)
+                            .model(spanResourceClient.randomModelPrice().getName())
+                            .usage(spanResourceClient.getTokenUsage())
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.set(0, spans.getFirst().toBuilder()
                     .metadata(JsonUtils.getJsonNodeFromString("{\"model\":[{\"year\":2024,\"version\":\"OpenAI, " +
                             "Chat-GPT 4.0\"}]}"))
@@ -5756,8 +5988,10 @@ class SpansResourceTest {
                             .metadata(JsonUtils.getJsonNodeFromString("{\"model\":[{\"year\":2024,\"version\":\"Some " +
                                     "version\"}]}"))
                             .feedbackScores(null)
+                            .model(spanResourceClient.randomModelPrice().getName())
+                            .usage(spanResourceClient.getTokenUsage())
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.set(0, spans.getFirst().toBuilder()
                     .metadata(JsonUtils.getJsonNodeFromString("{\"model\":[{\"year\":2023,\"version\":\"OpenAI, " +
                             "Chat-GPT 4.0\"}]}"))
@@ -5803,8 +6037,10 @@ class SpansResourceTest {
                                     JsonUtils.getJsonNodeFromString("{\"model\":[{\"year\":false,\"version\":\"Some " +
                                             "version\"}]}"))
                             .feedbackScores(null)
+                            .model(spanResourceClient.randomModelPrice().getName())
+                            .usage(spanResourceClient.getTokenUsage())
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.set(0, spans.getFirst().toBuilder()
                     .metadata(JsonUtils.getJsonNodeFromString("{\"model\":[{\"year\":true,\"version\":\"OpenAI, " +
                             "Chat-GPT 4.0\"}]}"))
@@ -5849,8 +6085,10 @@ class SpansResourceTest {
                             .metadata(JsonUtils.getJsonNodeFromString("{\"model\":[{\"year\":2024,\"version\":\"Some " +
                                     "version\"}]}"))
                             .feedbackScores(null)
+                            .model(spanResourceClient.randomModelPrice().getName())
+                            .usage(spanResourceClient.getTokenUsage())
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.set(0, spans.getFirst().toBuilder()
                     .metadata(JsonUtils.getJsonNodeFromString("{\"model\":[{\"year\":null,\"version\":\"OpenAI, " +
                             "Chat-GPT 4.0\"}]}"))
@@ -5895,8 +6133,10 @@ class SpansResourceTest {
                             .metadata(JsonUtils.getJsonNodeFromString("{\"model\":[{\"year\":2024,\"version\":\"Some " +
                                     "version\"}]}"))
                             .feedbackScores(null)
+                            .model(spanResourceClient.randomModelPrice().getName())
+                            .usage(spanResourceClient.getTokenUsage())
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.set(0, spans.getFirst().toBuilder()
                     .metadata(JsonUtils.getJsonNodeFromString("{\"model\":[{\"year\":2024,\"version\":\"OpenAI, " +
                             "Chat-GPT 4.0\"}]}"))
@@ -5941,8 +6181,10 @@ class SpansResourceTest {
                             .metadata(JsonUtils.getJsonNodeFromString("{\"model\":[{\"year\":\"two thousand twenty " +
                                     "four\",\"version\":\"OpenAI, Chat-GPT 4.0\"}]}"))
                             .feedbackScores(null)
+                            .model(spanResourceClient.randomModelPrice().getName())
+                            .usage(spanResourceClient.getTokenUsage())
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.set(0, spans.getFirst().toBuilder()
                     .metadata(JsonUtils.getJsonNodeFromString("{\"model\":[{\"year\":2023,\"version\":\"OpenAI, " +
                             "Chat-GPT 4.0\"}]}"))
@@ -5988,8 +6230,10 @@ class SpansResourceTest {
                                     JsonUtils.getJsonNodeFromString("{\"model\":[{\"year\":false,\"version\":\"Some " +
                                             "version\"}]}"))
                             .feedbackScores(null)
+                            .model(spanResourceClient.randomModelPrice().getName())
+                            .usage(spanResourceClient.getTokenUsage())
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.set(0, spans.getFirst().toBuilder()
                     .metadata(JsonUtils.getJsonNodeFromString("{\"model\":[{\"year\":true,\"version\":\"OpenAI, " +
                             "Chat-GPT 4.0\"}]}"))
@@ -6034,8 +6278,10 @@ class SpansResourceTest {
                             .metadata(JsonUtils.getJsonNodeFromString("{\"model\":[{\"year\":2024,\"version\":\"Some " +
                                     "version\"}]}"))
                             .feedbackScores(null)
+                            .model(spanResourceClient.randomModelPrice().getName())
+                            .usage(spanResourceClient.getTokenUsage())
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.set(0, spans.getFirst().toBuilder()
                     .metadata(JsonUtils.getJsonNodeFromString("{\"model\":[{\"year\":null,\"version\":\"OpenAI, " +
                             "Chat-GPT 4.0\"}]}"))
@@ -6080,8 +6326,10 @@ class SpansResourceTest {
                             .metadata(JsonUtils.getJsonNodeFromString("{\"model\":[{\"year\":2020," +
                                     "\"version\":\"OpenAI, Chat-GPT 4.0\"}]}"))
                             .feedbackScores(null)
+                            .model(spanResourceClient.randomModelPrice().getName())
+                            .usage(spanResourceClient.getTokenUsage())
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.set(0, spans.getFirst().toBuilder()
                     .metadata(JsonUtils.getJsonNodeFromString("{\"model\":[{\"year\":2024,\"version\":\"OpenAI, " +
                             "Chat-GPT 4.0\"}]}"))
@@ -6127,8 +6375,10 @@ class SpansResourceTest {
                                     .getJsonNodeFromString("{\"model\":[{\"year\":2024,\"version\":\"openAI, " +
                                             "Chat-GPT 4.0\"}]}"))
                             .feedbackScores(null)
+                            .model(spanResourceClient.randomModelPrice().getName())
+                            .usage(spanResourceClient.getTokenUsage())
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
 
             batchCreateAndAssert(spans, apiKey, workspaceName);
 
@@ -6170,8 +6420,10 @@ class SpansResourceTest {
                                     .getJsonNodeFromString("{\"model\":[{\"year\":true,\"version\":\"openAI, " +
                                             "Chat-GPT 4.0\"}]}"))
                             .feedbackScores(null)
+                            .model(spanResourceClient.randomModelPrice().getName())
+                            .usage(spanResourceClient.getTokenUsage())
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
 
             batchCreateAndAssert(spans, apiKey, workspaceName);
 
@@ -6213,8 +6465,10 @@ class SpansResourceTest {
                                     .getJsonNodeFromString("{\"model\":[{\"year\":null,\"version\":\"openAI, " +
                                             "Chat-GPT 4.0\"}]}"))
                             .feedbackScores(null)
+                            .model(spanResourceClient.randomModelPrice().getName())
+                            .usage(spanResourceClient.getTokenUsage())
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             batchCreateAndAssert(spans, apiKey, workspaceName);
             var expectedSpans = List.<Span>of();
             var unexpectedSpans = List.of(podamFactory.manufacturePojo(Span.class).toBuilder()
@@ -6253,8 +6507,10 @@ class SpansResourceTest {
                             .metadata(JsonUtils.getJsonNodeFromString("{\"model\":[{\"year\":2026," +
                                     "\"version\":\"OpenAI, Chat-GPT 4.0\"}]}"))
                             .feedbackScores(null)
+                            .model(spanResourceClient.randomModelPrice().getName())
+                            .usage(spanResourceClient.getTokenUsage())
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.set(0, spans.getFirst().toBuilder()
                     .metadata(JsonUtils.getJsonNodeFromString("{\"model\":[{\"year\":2024,\"version\":\"OpenAI, " +
                             "Chat-GPT 4.0\"}]}"))
@@ -6298,8 +6554,10 @@ class SpansResourceTest {
                                     .getJsonNodeFromString("{\"model\":[{\"year\":2024,\"version\":\"openAI, " +
                                             "Chat-GPT 4.0\"}]}"))
                             .feedbackScores(null)
+                            .model(spanResourceClient.randomModelPrice().getName())
+                            .usage(spanResourceClient.getTokenUsage())
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
 
             batchCreateAndAssert(spans, apiKey, workspaceName);
 
@@ -6341,8 +6599,10 @@ class SpansResourceTest {
                                     .getJsonNodeFromString("{\"model\":[{\"year\":true,\"version\":\"openAI, " +
                                             "Chat-GPT 4.0\"}]}"))
                             .feedbackScores(null)
+                            .model(spanResourceClient.randomModelPrice().getName())
+                            .usage(spanResourceClient.getTokenUsage())
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
 
             batchCreateAndAssert(spans, apiKey, workspaceName);
 
@@ -6384,8 +6644,10 @@ class SpansResourceTest {
                                     .getJsonNodeFromString("{\"model\":[{\"year\":null,\"version\":\"openAI, " +
                                             "Chat-GPT 4.0\"}]}"))
                             .feedbackScores(null)
+                            .model(spanResourceClient.randomModelPrice().getName())
+                            .usage(spanResourceClient.getTokenUsage())
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
 
             batchCreateAndAssert(spans, apiKey, workspaceName);
 
@@ -6424,8 +6686,10 @@ class SpansResourceTest {
                             .projectName(projectName)
                             .feedbackScores(null)
                             .startTime(generateStartTime())
+                            .model(spanResourceClient.randomModelPrice().getName())
+                            .usage(spanResourceClient.getTokenUsage())
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
 
             batchCreateAndAssert(spans, apiKey, workspaceName);
 
@@ -6474,9 +6738,10 @@ class SpansResourceTest {
             spans.add(podamFactory.manufacturePojo(Span.class).toBuilder()
                     .projectId(null)
                     .projectName(projectName)
-                    .usage(Map.of(usageKey, randomNumber(1, 8)))
                     .startTime(generateStartTime())
                     .feedbackScores(null)
+                    .model(spanResourceClient.randomModelPrice().getName())
+                    .usage(mergeUsage(usageKey, randomNumber(1, 8)))
                     .build());
 
             PodamFactoryUtils.manufacturePojoList(podamFactory, Span.class)
@@ -6484,7 +6749,6 @@ class SpansResourceTest {
                     .map(span -> span.toBuilder()
                             .projectId(null)
                             .projectName(projectName)
-                            .usage(Map.of(usageKey, randomNumber()))
                             .startTime(generateStartTime())
                             .feedbackScores(null)
                             .build())
@@ -6511,6 +6775,13 @@ class SpansResourceTest {
             getStatsAndAssert(projectName, null, filters, null, null, apiKey, workspaceName, projectStatItems);
         }
 
+        private Map<String, Integer> mergeUsage(String usageKey, int value) {
+            return Stream
+                    .concat(spanResourceClient.getTokenUsage().entrySet().stream(),
+                            Map.of(usageKey, value).entrySet().stream())
+                    .collect(toMap(Map.Entry::getKey, Map.Entry::getValue, (a, b) -> b));
+        }
+
         @ParameterizedTest
         @MethodSource("getSpanStats__whenFilterUsage__thenReturnSpansFiltered")
         void getSpanStats__whenFilterUsageGreaterThan__thenReturnSpansFiltered(String usageKey, Field field) {
@@ -6526,14 +6797,14 @@ class SpansResourceTest {
                     .map(span -> span.toBuilder()
                             .projectId(null)
                             .projectName(projectName)
-                            .usage(Map.of(usageKey, 123))
                             .feedbackScores(null)
                             .startTime(generateStartTime())
+                            .model(spanResourceClient.randomModelPrice().getName())
+                            .usage(mergeUsage(usageKey, 123))
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
-            spans.set(0, spans.getFirst().toBuilder()
-                    .usage(Map.of(usageKey, 456))
-                    .build());
+                    .collect(toCollection(ArrayList::new));
+
+            spans.getFirst().usage().put(usageKey, 456);
 
             batchCreateAndAssert(spans, apiKey, workspaceName);
 
@@ -6571,14 +6842,14 @@ class SpansResourceTest {
                     .map(span -> span.toBuilder()
                             .projectId(null)
                             .projectName(projectName)
-                            .usage(Map.of(usageKey, 123))
                             .feedbackScores(null)
                             .startTime(generateStartTime())
+                            .model(spanResourceClient.randomModelPrice().getName())
+                            .usage(mergeUsage(usageKey, 123))
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
-            spans.set(0, spans.getFirst().toBuilder()
-                    .usage(Map.of(usageKey, 456))
-                    .build());
+                    .collect(toCollection(ArrayList::new));
+
+            spans.getFirst().usage().put(usageKey, 456);
 
             batchCreateAndAssert(spans, apiKey, workspaceName);
 
@@ -6616,14 +6887,14 @@ class SpansResourceTest {
                     .map(span -> span.toBuilder()
                             .projectId(null)
                             .projectName(projectName)
-                            .usage(Map.of(usageKey, 456))
                             .feedbackScores(null)
                             .startTime(generateStartTime())
+                            .model(spanResourceClient.randomModelPrice().getName())
+                            .usage(mergeUsage(usageKey, 456))
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
-            spans.set(0, spans.getFirst().toBuilder()
-                    .usage(Map.of(usageKey, 123))
-                    .build());
+                    .collect(toCollection(ArrayList::new));
+
+            spans.getFirst().usage().put(usageKey, 123);
 
             batchCreateAndAssert(spans, apiKey, workspaceName);
 
@@ -6664,11 +6935,13 @@ class SpansResourceTest {
                             .usage(Map.of(usageKey, 456))
                             .feedbackScores(null)
                             .startTime(generateStartTime())
+                            .model(spanResourceClient.randomModelPrice().getName())
+                            .usage(mergeUsage(usageKey, 456))
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
-            spans.set(0, spans.getFirst().toBuilder()
-                    .usage(Map.of(usageKey, 123))
-                    .build());
+                    .collect(toCollection(ArrayList::new));
+
+            spans.getFirst().usage().put(usageKey, 123);
+
             batchCreateAndAssert(spans, apiKey, workspaceName);
 
             var expectedSpans = List.of(spans.getFirst());
@@ -6706,8 +6979,10 @@ class SpansResourceTest {
                             .projectId(null)
                             .projectName(projectName)
                             .startTime(generateStartTime())
+                            .model(spanResourceClient.randomModelPrice().getName())
+                            .usage(spanResourceClient.getTokenUsage())
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
 
             spans.set(1, spans.get(1).toBuilder()
                     .feedbackScores(
@@ -6766,10 +7041,12 @@ class SpansResourceTest {
                             .projectId(null)
                             .projectName(projectName)
                             .startTime(generateStartTime())
+                            .model(spanResourceClient.randomModelPrice().getName())
+                            .usage(spanResourceClient.getTokenUsage())
                             .feedbackScores(updateFeedbackScore(
                                     span.feedbackScores(), 2, 1234.5678))
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.set(0, spans.getFirst().toBuilder()
                     .feedbackScores(updateFeedbackScore(spans.getFirst().feedbackScores(), 2, 2345.6789))
                     .build());
@@ -6823,9 +7100,11 @@ class SpansResourceTest {
                             .projectId(null)
                             .projectName(projectName)
                             .startTime(generateStartTime())
+                            .model(spanResourceClient.randomModelPrice().getName())
+                            .usage(spanResourceClient.getTokenUsage())
                             .feedbackScores(updateFeedbackScore(span.feedbackScores(), 2, 1234.5678))
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.set(0, spans.getFirst().toBuilder()
                     .feedbackScores(updateFeedbackScore(spans.getFirst().feedbackScores(), 2, 2345.6789))
                     .build());
@@ -6875,9 +7154,11 @@ class SpansResourceTest {
                             .projectId(null)
                             .projectName(projectName)
                             .startTime(generateStartTime())
+                            .model(spanResourceClient.randomModelPrice().getName())
+                            .usage(spanResourceClient.getTokenUsage())
                             .feedbackScores(updateFeedbackScore(span.feedbackScores(), 2, 2345.6789))
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.set(0, spans.getFirst().toBuilder()
                     .feedbackScores(updateFeedbackScore(spans.getFirst().feedbackScores(), 2, 1234.5678))
                     .build());
@@ -6926,9 +7207,11 @@ class SpansResourceTest {
                             .projectId(null)
                             .projectName(projectName)
                             .startTime(generateStartTime())
+                            .model(spanResourceClient.randomModelPrice().getName())
+                            .usage(spanResourceClient.getTokenUsage())
                             .feedbackScores(updateFeedbackScore(span.feedbackScores(), 2, 2345.6789))
                             .build())
-                    .collect(Collectors.toCollection(ArrayList::new));
+                    .collect(toCollection(ArrayList::new));
             spans.set(0, spans.getFirst().toBuilder()
                     .feedbackScores(updateFeedbackScore(spans.getFirst().feedbackScores(), 2, 1234.5678))
                     .build());
@@ -6962,6 +7245,80 @@ class SpansResourceTest {
             List<ProjectStatItem<?>> projectStatItems = getProjectSpanStatItems(expectedSpans);
 
             getStatsAndAssert(projectName, null, filters, null, null, apiKey, workspaceName, projectStatItems);
+        }
+
+        Stream<Arguments> getSpanStats__whenFilterByDuration__thenReturnSpansFiltered() {
+            return Stream.of(
+                    arguments(Operator.EQUAL,
+                            Duration.ofMillis(1L).toNanos() / 1000, 1.0),
+                    arguments(Operator.GREATER_THAN,
+                            Duration.ofMillis(8L).toNanos() / 1000, 7.0),
+                    arguments(Operator.GREATER_THAN_EQUAL,
+                            Duration.ofMillis(1L).toNanos() / 1000, 1.0),
+                    arguments(Operator.GREATER_THAN_EQUAL,
+                            Duration.ofMillis(1L).plusNanos(1000).toNanos() / 1000, 1.0),
+                    arguments(Operator.LESS_THAN,
+                            Duration.ofMillis(1L).plusNanos(1).toNanos() / 1000, 2.0),
+                    arguments(Operator.LESS_THAN_EQUAL,
+                            Duration.ofMillis(1L).toNanos() / 1000, 1.0),
+                    arguments(Operator.LESS_THAN_EQUAL,
+                            Duration.ofMillis(1L).toNanos() / 1000, 2.0));
+        }
+
+        @ParameterizedTest
+        @MethodSource
+        void getSpanStats__whenFilterByDuration__thenReturnSpansFiltered(Operator operator, long end, double duration) {
+            String workspaceName = UUID.randomUUID().toString();
+            String workspaceId = UUID.randomUUID().toString();
+            String apiKey = UUID.randomUUID().toString();
+
+            mockTargetWorkspace(apiKey, workspaceName, workspaceId);
+
+            var projectName = generator.generate().toString();
+            var spans = PodamFactoryUtils.manufacturePojoList(podamFactory, Span.class)
+                    .stream()
+                    .map(span -> {
+                        Instant now = Instant.now();
+                        return span.toBuilder()
+                                .projectId(null)
+                                .projectName(projectName)
+                                .feedbackScores(null)
+                                .startTime(now)
+                                .endTime(Set.of(Operator.LESS_THAN, Operator.LESS_THAN_EQUAL).contains(operator)
+                                        ? Instant.now().plusSeconds(2)
+                                        : now.plusNanos(1000))
+                                .build();
+                    })
+                    .collect(Collectors.toCollection(ArrayList::new));
+
+            var start = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+            spans.set(0, spans.getFirst().toBuilder()
+                    .startTime(start)
+                    .endTime(start.plus(end, ChronoUnit.MICROS))
+                    .build());
+
+            spans.forEach(expectedSpan -> createAndAssert(expectedSpan, apiKey, workspaceName));
+
+            var expectedSpans = List.of(spans.getFirst());
+
+            var unexpectedSpans = PodamFactoryUtils.manufacturePojoList(podamFactory, Span.class).stream()
+                    .map(span -> span.toBuilder()
+                            .projectId(null)
+                            .build())
+                    .toList();
+
+            unexpectedSpans.forEach(expectedSpan -> createAndAssert(expectedSpan, apiKey, workspaceName));
+
+            var filters = List.of(
+                    SpanFilter.builder()
+                            .field(SpanField.DURATION)
+                            .operator(operator)
+                            .value(String.valueOf(duration))
+                            .build());
+
+            List<ProjectStatItem<?>> stats = getProjectSpanStatItems(expectedSpans);
+
+            getStatsAndAssert(projectName, null, filters, null, null, apiKey, workspaceName, stats);
         }
 
         static Stream<Filter> getSpanStats__whenFilterInvalidOperatorForFieldType__thenReturn400() {
@@ -7230,6 +7587,26 @@ class SpansResourceTest {
                             .field(SpanField.TAGS)
                             .operator(Operator.LESS_THAN_EQUAL)
                             .value(RandomStringUtils.randomAlphanumeric(10))
+                            .build(),
+                    SpanFilter.builder()
+                            .field(SpanField.DURATION)
+                            .operator(Operator.NOT_CONTAINS)
+                            .value("1")
+                            .build(),
+                    SpanFilter.builder()
+                            .field(SpanField.DURATION)
+                            .operator(Operator.CONTAINS)
+                            .value("1")
+                            .build(),
+                    SpanFilter.builder()
+                            .field(SpanField.DURATION)
+                            .operator(Operator.ENDS_WITH)
+                            .value("1")
+                            .build(),
+                    SpanFilter.builder()
+                            .field(SpanField.DURATION)
+                            .operator(Operator.STARTS_WITH)
+                            .value("1")
                             .build());
         }
 
@@ -7237,7 +7614,7 @@ class SpansResourceTest {
         @MethodSource
         void getSpanStats__whenFilterInvalidOperatorForFieldType__thenReturn400(Filter filter) {
             var expectedError = new io.dropwizard.jersey.errors.ErrorMessage(
-                    400,
+                    HttpStatus.SC_BAD_REQUEST,
                     "Invalid operator '%s' for field '%s' of type '%s'".formatted(
                             filter.operator().getQueryParamOperator(),
                             filter.field().getQueryParamField(),
@@ -7334,6 +7711,16 @@ class SpansResourceTest {
                             .operator(Operator.EQUAL)
                             .value("")
                             .key("hallucination")
+                            .build(),
+                    SpanFilter.builder()
+                            .field(SpanField.DURATION)
+                            .operator(Operator.EQUAL)
+                            .value("")
+                            .build(),
+                    SpanFilter.builder()
+                            .field(SpanField.DURATION)
+                            .operator(Operator.EQUAL)
+                            .value(RandomStringUtils.randomAlphanumeric(5))
                             .build());
         }
 
@@ -7347,7 +7734,7 @@ class SpansResourceTest {
             mockTargetWorkspace(apiKey, workspaceName, workspaceId);
 
             var expectedError = new io.dropwizard.jersey.errors.ErrorMessage(
-                    400,
+                    HttpStatus.SC_BAD_REQUEST,
                     "Invalid value '%s' or key '%s' for field '%s' of type '%s'".formatted(
                             filter.value(),
                             filter.key(),

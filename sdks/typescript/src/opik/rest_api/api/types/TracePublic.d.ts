@@ -12,6 +12,7 @@ export interface TracePublic {
     output?: OpikApi.JsonNodePublic;
     metadata?: OpikApi.JsonNodePublic;
     tags?: string[];
+    errorInfo?: OpikApi.ErrorInfoPublic;
     usage?: Record<string, number>;
     createdAt?: Date;
     lastUpdatedAt?: Date;
@@ -19,4 +20,6 @@ export interface TracePublic {
     lastUpdatedBy?: string;
     feedbackScores?: OpikApi.FeedbackScorePublic[];
     totalEstimatedCost?: number;
+    /** Duration in milliseconds as a decimal number to support sub-millisecond precision */
+    duration?: number;
 }

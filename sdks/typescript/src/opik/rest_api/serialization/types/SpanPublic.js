@@ -30,6 +30,7 @@ exports.SpanPublic = void 0;
 const core = __importStar(require("../../core"));
 const SpanPublicType_1 = require("./SpanPublicType");
 const JsonNodePublic_1 = require("./JsonNodePublic");
+const ErrorInfoPublic_1 = require("./ErrorInfoPublic");
 const FeedbackScorePublic_1 = require("./FeedbackScorePublic");
 exports.SpanPublic = core.serialization.object({
     id: core.serialization.string().optional(),
@@ -47,10 +48,12 @@ exports.SpanPublic = core.serialization.object({
     provider: core.serialization.string().optional(),
     tags: core.serialization.list(core.serialization.string()).optional(),
     usage: core.serialization.record(core.serialization.string(), core.serialization.number()).optional(),
+    errorInfo: core.serialization.property("error_info", ErrorInfoPublic_1.ErrorInfoPublic.optional()),
     createdAt: core.serialization.property("created_at", core.serialization.date().optional()),
     lastUpdatedAt: core.serialization.property("last_updated_at", core.serialization.date().optional()),
     createdBy: core.serialization.property("created_by", core.serialization.string().optional()),
     lastUpdatedBy: core.serialization.property("last_updated_by", core.serialization.string().optional()),
     feedbackScores: core.serialization.property("feedback_scores", core.serialization.list(FeedbackScorePublic_1.FeedbackScorePublic).optional()),
     totalEstimatedCost: core.serialization.property("total_estimated_cost", core.serialization.number().optional()),
+    duration: core.serialization.number().optional(),
 });

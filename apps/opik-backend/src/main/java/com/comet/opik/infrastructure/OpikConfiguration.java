@@ -1,14 +1,15 @@
 package com.comet.opik.infrastructure;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import io.dropwizard.core.Configuration;
 import io.dropwizard.db.DataSourceFactory;
+import io.dropwizard.jobs.JobConfiguration;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import lombok.Getter;
+import lombok.ToString;
 
 @Getter
-public class OpikConfiguration extends Configuration {
+public class OpikConfiguration extends JobConfiguration {
 
     @Valid
     @NotNull @JsonProperty
@@ -53,4 +54,13 @@ public class OpikConfiguration extends Configuration {
     @Valid
     @NotNull @JsonProperty
     private BatchOperationsConfig batchOperations = new BatchOperationsConfig();
+
+    @Valid
+    @NotNull @JsonProperty
+    @ToString.Exclude
+    private EncryptionConfig encryption = new EncryptionConfig();
+
+    @Valid
+    @NotNull @JsonProperty
+    private LlmProviderClientConfig llmProviderClient = new LlmProviderClientConfig();
 }

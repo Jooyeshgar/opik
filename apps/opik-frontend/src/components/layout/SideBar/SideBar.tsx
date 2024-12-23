@@ -8,10 +8,12 @@ import {
   GraduationCap,
   LayoutGrid,
   LucideIcon,
-  MessageSquare,
   PanelLeftClose,
   MessageCircleQuestion,
   FileTerminal,
+  LucideHome,
+  Blocks,
+  Bolt,
 } from "lucide-react";
 import { keepPreviousData } from "@tanstack/react-query";
 
@@ -19,7 +21,6 @@ import useAppStore from "@/store/AppStore";
 import useProjectsList from "@/api/projects/useProjectsList";
 import useDatasetsList from "@/api/datasets/useDatasetsList";
 import useExperimentsList from "@/api/datasets/useExperimentsList";
-import useFeedbackDefinitionsList from "@/api/feedback-definitions/useFeedbackDefinitionsList";
 import { OnChangeFn } from "@/types/shared";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -46,50 +47,98 @@ type MenuItem = {
   onClick?: MouseEventHandler<HTMLButtonElement>;
 };
 
-const MAIN_MENU_ITEMS: MenuItem[] = [
+type MenuItemGroup = {
+  id: string;
+  label?: string;
+  items: MenuItem[];
+};
+
+const HOME_PATH = "/$workspaceName/home";
+
+const MENU_ITEMS: MenuItemGroup[] = [
   {
-    id: "projects",
-    path: "/$workspaceName/projects",
-    type: MENU_ITEM_TYPE.router,
-    icon: LayoutGrid,
-    label: "Projects",
-    count: "projects",
+    id: "home",
+    items: [
+      {
+        id: "home",
+        path: "/$workspaceName/home",
+        type: MENU_ITEM_TYPE.router,
+        icon: LucideHome,
+        label: "Home",
+      },
+    ],
   },
   {
-    id: "prompts",
-    path: "/$workspaceName/prompts",
-    type: MENU_ITEM_TYPE.router,
-    icon: FileTerminal,
-    label: "Prompt library",
-    count: "prompts",
+    id: "observability",
+    label: "Observability",
+    items: [
+      {
+        id: "projects",
+        path: "/$workspaceName/projects",
+        type: MENU_ITEM_TYPE.router,
+        icon: LayoutGrid,
+        label: "Projects",
+        count: "projects",
+      },
+    ],
   },
   {
-    id: "datasets",
-    path: "/$workspaceName/datasets",
-    type: MENU_ITEM_TYPE.router,
-    icon: Database,
-    label: "Datasets",
-    count: "datasets",
+    id: "evaluation",
+    label: "Evaluation",
+    items: [
+      {
+        id: "datasets",
+        path: "/$workspaceName/datasets",
+        type: MENU_ITEM_TYPE.router,
+        icon: Database,
+        label: "Datasets",
+        count: "datasets",
+      },
+      {
+        id: "experiments",
+        path: "/$workspaceName/experiments",
+        type: MENU_ITEM_TYPE.router,
+        icon: FlaskConical,
+        label: "Experiments",
+        count: "experiments",
+      },
+    ],
   },
   {
-    id: "experiments",
-    path: "/$workspaceName/experiments",
-    type: MENU_ITEM_TYPE.router,
-    icon: FlaskConical,
-    label: "Experiments",
-    count: "experiments",
+    id: "prompt_engineering",
+    label: "Prompt engineering",
+    items: [
+      {
+        id: "prompts",
+        path: "/$workspaceName/prompts",
+        type: MENU_ITEM_TYPE.router,
+        icon: FileTerminal,
+        label: "Prompt library",
+        count: "prompts",
+      },
+      {
+        id: "playground",
+        path: "/$workspaceName/playground",
+        type: MENU_ITEM_TYPE.router,
+        icon: Blocks,
+        label: "Playground",
+      },
+    ],
   },
   {
-    id: "feedback-definitions",
-    path: "/$workspaceName/feedback-definitions",
-    type: MENU_ITEM_TYPE.router,
-    icon: MessageSquare,
-    label: "Feedback definitions",
-    count: "feedbackDefinitions",
+    id: "configuration",
+    label: "Configuration",
+    items: [
+      {
+        id: "configuration",
+        path: "/$workspaceName/configuration",
+        type: MENU_ITEM_TYPE.router,
+        icon: Bolt,
+        label: "Configuration",
+      },
+    ],
   },
 ];
-
-const HOME_PATH = "/$workspaceName/projects";
 
 type SideBarProps = {
   expanded: boolean;
@@ -202,17 +251,6 @@ const SideBar: React.FunctionComponent<SideBarProps> = ({
       enabled: expanded,
     },
   );
-  const { data: feedbackDefinitions } = useFeedbackDefinitionsList(
-    {
-      workspaceName,
-      page: 1,
-      size: 1,
-    },
-    {
-      placeholderData: keepPreviousData,
-      enabled: expanded,
-    },
-  );
 
   const { data: promptsData } = usePromptsList(
     {
@@ -230,7 +268,6 @@ const SideBar: React.FunctionComponent<SideBarProps> = ({
     projects: projectData?.total,
     datasets: datasetsData?.total,
     experiments: experimentsData?.total,
-    feedbackDefinitions: feedbackDefinitions?.total,
     prompts: promptsData?.total,
   };
 
@@ -322,6 +359,24 @@ const SideBar: React.FunctionComponent<SideBarProps> = ({
     });
   };
 
+  const renderGroups = (groups: MenuItemGroup[]) => {
+    return groups.map((group) => {
+      return (
+        <li key={group.id} className={cn(expanded && "mb-1")}>
+          <div>
+            {group.label && expanded && (
+              <div className="comet-body-s truncate pb-1 pl-2.5 pr-3 pt-3 text-light-slate">
+                {group.label}
+              </div>
+            )}
+
+            <ul>{renderItems(group.items)}</ul>
+          </div>
+        </li>
+      );
+    });
+  };
+
   return (
     <>
       <aside className="comet-sidebar-width h-full border-r transition-all">
@@ -346,9 +401,7 @@ const SideBar: React.FunctionComponent<SideBarProps> = ({
           )}
         </div>
         <div className="flex h-[calc(100%-var(--header-height))] flex-col justify-between px-3 py-6">
-          <ul className="flex flex-col gap-1">
-            {renderItems(MAIN_MENU_ITEMS)}
-          </ul>
+          <ul className="flex flex-col gap-1">{renderGroups(MENU_ITEMS)}</ul>
           <div className="flex flex-col gap-4">
             <Separator />
             <ul className="flex flex-col gap-1">

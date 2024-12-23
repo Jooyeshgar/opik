@@ -3,12 +3,12 @@ import atexit
 import datetime
 import logging
 
-from typing import Optional, Any, Dict, List, Mapping
+from typing import Optional, Any, Dict, List
 
 from .prompt import Prompt
 from .prompt.client import PromptClient
 
-from ..types import SpanType, UsageDict, FeedbackScoreDict
+from ..types import SpanType, UsageDict, FeedbackScoreDict, ErrorInfoDict
 from . import (
     opik_query_language,
     span,
@@ -19,6 +19,7 @@ from . import (
     constants,
     validation_helpers,
 )
+from .experiment import helpers as experiment_helpers
 from ..message_processing import streamer_constructors, messages
 from ..message_processing.batching import sequence_splitter
 
@@ -26,15 +27,16 @@ from ..rest_api import client as rest_api_client
 from ..rest_api.types import dataset_public, trace_public, span_public, project_public
 from ..rest_api.core.api_error import ApiError
 from .. import (
+    exceptions,
     datetime_helpers,
     config,
     httpx_client,
-    jsonable_encoder,
     url_helpers,
     rest_client_configurator,
 )
 
 LOGGER = logging.getLogger(__name__)
+OPIK_API_REQUESTS_TIMEOUT_SECONDS = 5.0
 
 
 class Opik:
@@ -74,6 +76,7 @@ class Opik:
             base_url=config_.url_override,
             workers=config_.background_workers,
             api_key=config_.api_key,
+            check_tls_certificate=config_.check_tls_certificate,
             use_batching=_use_batching,
         )
         atexit.register(self.end, timeout=self._flush_timeout)
@@ -83,13 +86,19 @@ class Opik:
         base_url: str,
         workers: int,
         api_key: Optional[str],
+        check_tls_certificate: bool,
         use_batching: bool,
     ) -> None:
-        httpx_client_ = httpx_client.get(workspace=self._workspace, api_key=api_key)
+        httpx_client_ = httpx_client.get(
+            workspace=self._workspace,
+            api_key=api_key,
+            check_tls_certificate=check_tls_certificate,
+        )
         self._rest_client = rest_api_client.OpikApi(
             base_url=base_url,
             httpx_client=httpx_client_,
         )
+        self._rest_client._client_wrapper._timeout = OPIK_API_REQUESTS_TIMEOUT_SECONDS  # See https://github.com/fern-api/fern/issues/5321
         rest_client_configurator.configure(self._rest_client)
         self._streamer = streamer_constructors.construct_online_streamer(
             n_consumers=workers,
@@ -118,6 +127,14 @@ class Opik:
 
         LOGGER.info(f'Created a "{dataset_name}" dataset at {dataset_url}.')
 
+    def auth_check(self) -> None:
+        """
+        Checks if current API key user has an access to the configured workspace and its content.
+        """
+        self._rest_client.check.access(
+            request={}
+        )  # empty body for future backward compatibility
+
     def trace(
         self,
         id: Optional[str] = None,
@@ -130,6 +147,7 @@ class Opik:
         tags: Optional[List[str]] = None,
         feedback_scores: Optional[List[FeedbackScoreDict]] = None,
         project_name: Optional[str] = None,
+        error_info: Optional[ErrorInfoDict] = None,
         **ignored_kwargs: Any,
     ) -> trace.Trace:
         """
@@ -147,6 +165,7 @@ class Opik:
             feedback_scores: The list of feedback score dicts associated with the trace. Dicts don't require to have an `id` value.
             project_name: The name of the project. If not set, the project name which was configured when Opik instance
                 was created will be used.
+            error_info: The dictionary with error information (typically used when the trace function has failed).
 
         Returns:
             trace.Trace: The created trace object.
@@ -169,6 +188,7 @@ class Opik:
             output=output,
             metadata=metadata,
             tags=tags,
+            error_info=error_info,
         )
         self._streamer.put(create_trace_message)
         self._display_trace_url(workspace=self._workspace, project_name=project_name)
@@ -203,6 +223,7 @@ class Opik:
         project_name: Optional[str] = None,
         model: Optional[str] = None,
         provider: Optional[str] = None,
+        error_info: Optional[ErrorInfoDict] = None,
     ) -> span.Span:
         """
         Create and log a new span.
@@ -225,6 +246,7 @@ class Opik:
                 was created will be used.
             model: The name of LLM (in this case `type` parameter should be == `llm`)
             provider: The provider of LLM.
+            error_info: The dictionary with error information (typically used when the span function has failed).
 
         Returns:
             span.Span: The created span object.
@@ -259,6 +281,7 @@ class Opik:
                 output=output,
                 metadata=metadata,
                 tags=tags,
+                error_info=error_info,
             )
             self._streamer.put(create_trace_message)
 
@@ -278,6 +301,7 @@ class Opik:
             usage=parsed_usage.supported_usage,
             model=model,
             provider=provider,
+            error_info=error_info,
         )
         self._streamer.put(create_span_message)
 
@@ -480,23 +504,10 @@ class Opik:
             experiment.Experiment: The newly created experiment object.
         """
         id = helpers.generate_id()
-        metadata = None
-        prompt_version: Optional[Dict[str, str]] = None
 
-        if isinstance(experiment_config, Mapping):
-            if prompt is not None:
-                prompt_version = {"id": prompt.__internal_api__version_id__}
-
-                if "prompt" not in experiment_config:
-                    experiment_config["prompt"] = prompt.prompt
-
-            metadata = jsonable_encoder.jsonable_encoder(experiment_config)
-
-        elif experiment_config is not None:
-            LOGGER.error(
-                "Experiment config must be dictionary, but %s was provided. Config will not be logged.",
-                experiment_config,
-            )
+        metadata, prompt_version = experiment.build_metadata_and_prompt_version(
+            experiment_config=experiment_config, prompt=prompt
+        )
 
         self._rest_client.experiments.create_experiment(
             name=name,
@@ -515,6 +526,57 @@ class Opik:
         )
 
         return experiment_
+
+    def get_experiment_by_name(self, name: str) -> experiment.Experiment:
+        """
+        Returns an existing experiment by its name.
+
+        Args:
+            name: The name of the experiment.
+
+        Returns:
+            experiment.Experiment: the API object for an existing experiment.
+        """
+        experiment_public = experiment_helpers.get_experiment_data_by_name(
+            rest_client=self._rest_client, name=name
+        )
+
+        return experiment.Experiment(
+            id=experiment_public.id,
+            name=name,
+            dataset_name=experiment_public.dataset_name,
+            rest_client=self._rest_client,
+            # TODO: add prompt if exists
+        )
+
+    def get_experiment_by_id(self, id: str) -> experiment.Experiment:
+        """
+        Returns an existing experiment by its id.
+
+        Args:
+            id: The id of the experiment.
+
+        Returns:
+            experiment.Experiment: the API object for an existing experiment.
+        """
+        try:
+            experiment_public = self._rest_client.experiments.get_experiment_by_id(
+                id=id
+            )
+        except ApiError as exception:
+            if exception.status_code == 404:
+                raise exceptions.ExperimentNotFound(
+                    f"Experiment with the id {id} not found."
+                ) from exception
+            raise
+
+        return experiment.Experiment(
+            id=experiment_public.id,
+            name=experiment_public.name,
+            dataset_name=experiment_public.dataset_name,
+            rest_client=self._rest_client,
+            # TODO: add prompt if exists
+        )
 
     def end(self, timeout: Optional[int] = None) -> None:
         """
@@ -675,6 +737,7 @@ class Opik:
         self,
         name: str,
         prompt: str,
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> Prompt:
         """
         Creates a new prompt with the given name and template.
@@ -691,7 +754,7 @@ class Opik:
             ApiError: If there is an error during the creation of the prompt and the status code is not 409.
         """
         prompt_client = PromptClient(self._rest_client)
-        return prompt_client.create_prompt(name=name, prompt=prompt)
+        return prompt_client.create_prompt(name=name, prompt=prompt, metadata=metadata)
 
     def get_prompt(
         self,

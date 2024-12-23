@@ -8,6 +8,7 @@ import org.jdbi.v3.sqlobject.config.RegisterColumnMapper;
 import org.jdbi.v3.sqlobject.config.RegisterConstructorMapper;
 import org.jdbi.v3.sqlobject.customizer.AllowUnusedBindings;
 import org.jdbi.v3.sqlobject.customizer.Bind;
+import org.jdbi.v3.sqlobject.customizer.BindList;
 import org.jdbi.v3.sqlobject.customizer.BindMethods;
 import org.jdbi.v3.sqlobject.customizer.Define;
 import org.jdbi.v3.sqlobject.statement.SqlQuery;
@@ -15,6 +16,7 @@ import org.jdbi.v3.sqlobject.statement.SqlUpdate;
 import org.jdbi.v3.stringtemplate4.UseStringTemplateEngine;
 
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 @RegisterColumnMapper(PromptVersionColumnMapper.class)
@@ -40,6 +42,8 @@ interface PromptDAO {
                         'prompt_id', pv.prompt_id,
                         'commit', pv.commit,
                         'template', pv.template,
+                        'metadata', pv.metadata,
+                        'change_description', pv.change_description,
                         'created_at', pv.created_at,
                         'created_by', pv.created_by,
                         'last_updated_at', pv.last_updated_at,
@@ -91,4 +95,6 @@ interface PromptDAO {
     @SqlUpdate("DELETE FROM prompts WHERE id = :id AND workspace_id = :workspace_id")
     int delete(@Bind("id") UUID id, @Bind("workspace_id") String workspaceId);
 
+    @SqlUpdate("DELETE FROM prompts WHERE id IN (<ids>) AND workspace_id = :workspaceId")
+    void delete(@BindList("ids") Set<UUID> ids, @Bind("workspaceId") String workspaceId);
 }

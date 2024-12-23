@@ -78,7 +78,7 @@ public class TracesResource {
     @Operation(operationId = "getTracesByProject", summary = "Get traces by project_name or project_id", description = "Get traces by project_name or project_id", responses = {
             @ApiResponse(responseCode = "200", description = "Trace resource", content = @Content(schema = @Schema(implementation = TracePage.class)))})
     @JsonView(Trace.View.Public.class)
-    public Response getByProjectId(
+    public Response getTracesByProject(
             @QueryParam("page") @Min(1) @DefaultValue("1") int page,
             @QueryParam("size") @Min(1) @DefaultValue("10") int size,
             @QueryParam("project_name") String projectName,
@@ -190,13 +190,13 @@ public class TracesResource {
 
         String workspaceId = requestContext.get().getWorkspaceId();
 
-        log.info("Updating span with id '{}' on workspaceId '{}'", id, workspaceId);
+        log.info("Updating trace with id '{}' on workspaceId '{}'", id, workspaceId);
 
         service.update(trace, id)
                 .contextWrite(ctx -> setRequestContext(ctx, requestContext))
                 .block();
 
-        log.info("Updated span with id '{}' on workspaceId '{}'", id, workspaceId);
+        log.info("Updated trace with id '{}' on workspaceId '{}'", id, workspaceId);
 
         return Response.noContent().build();
     }

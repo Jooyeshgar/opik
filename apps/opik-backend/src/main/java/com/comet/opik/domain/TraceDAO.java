@@ -40,6 +40,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+import static com.comet.opik.api.ErrorInfo.ERROR_INFO_TYPE;
 import static com.comet.opik.api.Trace.TracePage;
 import static com.comet.opik.api.TraceCountResponse.WorkspaceTraceCount;
 import static com.comet.opik.domain.AsyncContextUtils.bindUserNameAndWorkspaceContext;
@@ -83,6 +84,8 @@ interface TraceDAO {
     Flux<BiInformation> getTraceBIInformation(Connection connection);
 
     Mono<ProjectStats> getStats(TraceSearchCriteria criteria);
+
+    Mono<Long> getDailyTraces();
 }
 
 @Slf4j
@@ -102,6 +105,7 @@ class TraceDAOImpl implements TraceDAO {
                 output,
                 metadata,
                 tags,
+                error_info,
                 created_by,
                 last_updated_by
             ) VALUES
@@ -117,6 +121,7 @@ class TraceDAOImpl implements TraceDAO {
                         :output<item.index>,
                         :metadata<item.index>,
                         :tags<item.index>,
+                        :error_info<item.index>,
                         :user_name,
                         :user_name
                     )
@@ -143,6 +148,7 @@ class TraceDAOImpl implements TraceDAO {
                 output,
                 metadata,
                 tags,
+                error_info,
                 created_at,
                 created_by,
                 last_updated_by
@@ -188,6 +194,10 @@ class TraceDAOImpl implements TraceDAO {
                     new_trace.tags
                 ) as tags,
                 multiIf(
+                    LENGTH(old_trace.error_info) > 0, old_trace.error_info,
+                    new_trace.error_info
+                ) as error_info,
+                multiIf(
                     notEquals(old_trace.created_at, toDateTime64('1970-01-01 00:00:00.000', 9)) AND old_trace.created_at >= toDateTime64('1970-01-01 00:00:00.000', 9), old_trace.created_at,
                     new_trace.created_at
                 ) as created_at,
@@ -208,6 +218,7 @@ class TraceDAOImpl implements TraceDAO {
                     :output as output,
                     :metadata as metadata,
                     :tags as tags,
+                    :error_info as error_info,
                     now64(9) as created_at,
                     :user_name as created_by,
                     :user_name as last_updated_by
@@ -229,7 +240,7 @@ class TraceDAOImpl implements TraceDAO {
      ***/
     private static final String UPDATE = """
             INSERT INTO traces (
-            	id, project_id, workspace_id, name, start_time, end_time, input, output, metadata, tags, created_at, created_by, last_updated_by
+            	id, project_id, workspace_id, name, start_time, end_time, input, output, metadata, tags, error_info, created_at, created_by, last_updated_by
             ) SELECT
             	id,
             	project_id,
@@ -241,6 +252,7 @@ class TraceDAOImpl implements TraceDAO {
             	<if(output)> :output <else> output <endif> as output,
             	<if(metadata)> :metadata <else> metadata <endif> as metadata,
             	<if(tags)> :tags <else> tags <endif> as tags,
+            	<if(error_info)> :error_info <else> error_info <endif> as error_info,
             	created_at,
             	created_by,
                 :user_name as last_updated_by
@@ -255,11 +267,16 @@ class TraceDAOImpl implements TraceDAO {
     private static final String SELECT_BY_ID = """
             SELECT
                 t.*,
+                t.duration_millis,
                 sumMap(s.usage) as usage,
                 sum(s.total_estimated_cost) as total_estimated_cost
             FROM (
                 SELECT
-                    *
+                    *,
+                    if(end_time IS NOT NULL AND start_time IS NOT NULL
+                                AND notEquals(start_time, toDateTime64('1970-01-01 00:00:00.000', 9)),
+                            (dateDiff('microsecond', start_time, end_time) / 1000.0),
+                            NULL) AS duration_millis
                 FROM traces
                 WHERE workspace_id = :workspace_id
                 AND id = :id
@@ -278,7 +295,8 @@ class TraceDAOImpl implements TraceDAO {
                 LIMIT 1 BY id
             ) AS s ON t.id = s.trace_id
             GROUP BY
-                t.*
+                t.*,
+                duration_millis
             ORDER BY t.id DESC
             ;
             """;
@@ -286,6 +304,7 @@ class TraceDAOImpl implements TraceDAO {
     private static final String SELECT_BY_PROJECT_ID = """
             SELECT
                 t.*,
+                t.duration_millis,
                 sumMap(s.usage) as usage,
                 sum(s.total_estimated_cost) as total_estimated_cost
             FROM (
@@ -300,10 +319,15 @@ class TraceDAOImpl implements TraceDAO {
                      <if(truncate)> replaceRegexpAll(output, '<truncate>', '"[image]"') as output <else> output <endif>,
                      <if(truncate)> replaceRegexpAll(metadata, '<truncate>', '"[image]"') as metadata <else> metadata <endif>,
                      tags,
+                     error_info,
                      created_at,
                      last_updated_at,
                      created_by,
-                     last_updated_by
+                     last_updated_by,
+                     if(end_time IS NOT NULL AND start_time IS NOT NULL
+                                 AND notEquals(start_time, toDateTime64('1970-01-01 00:00:00.000', 9)),
+                             (dateDiff('microsecond', start_time, end_time) / 1000.0),
+                             NULL) AS duration_millis
                  FROM traces
                  WHERE project_id = :project_id
                  AND workspace_id = :workspace_id
@@ -341,7 +365,8 @@ class TraceDAOImpl implements TraceDAO {
                 LIMIT 1 BY id
             ) AS s ON t.id = s.trace_id
             GROUP BY
-                t.*
+                t.*,
+                t.duration_millis
             <if(trace_aggregation_filters)>
             HAVING <trace_aggregation_filters>
             <endif>
@@ -380,7 +405,11 @@ class TraceDAOImpl implements TraceDAO {
                     sum(s.total_estimated_cost) as total_estimated_cost
                 FROM (
                     SELECT
-                        id
+                        id,
+                        if(end_time IS NOT NULL AND start_time IS NOT NULL
+                             AND notEquals(start_time, toDateTime64('1970-01-01 00:00:00.000', 9)),
+                         (dateDiff('microsecond', start_time, end_time) / 1000.0),
+                         NULL) AS duration_millis
                     FROM traces
                     WHERE project_id = :project_id
                     AND workspace_id = :workspace_id
@@ -455,7 +484,7 @@ class TraceDAOImpl implements TraceDAO {
     //TODO: refactor to implement proper conflict resolution
     private static final String INSERT_UPDATE = """
             INSERT INTO traces (
-                id, project_id, workspace_id, name, start_time, end_time, input, output, metadata, tags, created_at, created_by, last_updated_by
+                id, project_id, workspace_id, name, start_time, end_time, input, output, metadata, tags, error_info, created_at, created_by, last_updated_by
             )
             SELECT
                 new_trace.id as id,
@@ -503,6 +532,11 @@ class TraceDAOImpl implements TraceDAO {
                     new_trace.tags
                 ) as tags,
                 multiIf(
+                    LENGTH(new_trace.error_info) > 0, new_trace.error_info,
+                    LENGTH(old_trace.error_info) > 0, old_trace.error_info,
+                    new_trace.error_info
+                ) as error_info,
+                multiIf(
                     notEquals(old_trace.created_at, toDateTime64('1970-01-01 00:00:00.000', 9)) AND old_trace.created_at >= toDateTime64('1970-01-01 00:00:00.000', 9), old_trace.created_at,
                     new_trace.created_at
                 ) as created_at,
@@ -523,6 +557,7 @@ class TraceDAOImpl implements TraceDAO {
                     <if(output)> :output <else> '' <endif> as output,
                     <if(metadata)> :metadata <else> '' <endif> as metadata,
                     <if(tags)> :tags <else> [] <endif> as tags,
+                    <if(error_info)> :error_info <else> '' <endif> as error_info,
                     now64(9) as created_at,
                     :user_name as created_by,
                     :user_name as last_updated_by
@@ -568,31 +603,37 @@ class TraceDAOImpl implements TraceDAO {
                 SELECT
                     project_id as project_id,
                     count(DISTINCT trace_id) as trace_count,
-                    arrayMap(v -> if(isNaN(v), 0, toDecimal64(v / 1000.0, 9)), quantiles(0.5, 0.9, 0.99)(duration)) AS duration,
+                    arrayMap(v -> toDecimal64(if(isNaN(v), 0, v), 9), quantiles(0.5, 0.9, 0.99)(duration)) AS duration,
                     sum(input_count) as input,
                     sum(output_count) as output,
                     sum(metadata_count) as metadata,
                     avg(tags_count) as tags,
                     avgMap(usage) as usage,
-                    avgMap(feedback_scores) AS feedback_scores
+                    avgMap(feedback_scores) AS feedback_scores,
+                    avgIf(total_estimated_cost, total_estimated_cost > 0) AS total_estimated_cost_,
+                    toDecimal64(if(isNaN(total_estimated_cost_), 0, total_estimated_cost_), 8) AS total_estimated_cost_avg
                 FROM (
                     SELECT
                         t.workspace_id as workspace_id,
                         t.project_id as project_id,
                         t.id as trace_id,
-                        t.duration as duration,
+                        t.duration_millis as duration,
                         t.input_count as input_count,
                         t.output_count as output_count,
                         t.metadata_count as metadata_count,
                         t.tags_count as tags_count,
                         s.usage as usage,
-                        f.feedback_scores as feedback_scores
+                        f.feedback_scores as feedback_scores,
+                        s.total_estimated_cost as total_estimated_cost
                     FROM (
                         SELECT
                              workspace_id,
                              project_id,
                              id,
-                             if(end_time IS NOT NULL, date_diff('microsecond', start_time, end_time), null) as duration,
+                             if(end_time IS NOT NULL AND start_time IS NOT NULL
+                                         AND notEquals(start_time, toDateTime64('1970-01-01 00:00:00.000', 9)),
+                                     (dateDiff('microsecond', start_time, end_time) / 1000.0),
+                                     NULL) AS duration_millis,
                              if(length(input) > 0, 1, 0) as input_count,
                              if(length(output) > 0, 1, 0) as output_count,
                              if(length(metadata) > 0, 1, 0) as metadata_count,
@@ -649,11 +690,13 @@ class TraceDAOImpl implements TraceDAO {
                     LEFT JOIN (
                         SELECT
                             trace_id,
-                            sumMap(usage) as usage
+                            sumMap(usage) as usage,
+                            sum(total_estimated_cost) as total_estimated_cost
                         FROM (
                             SELECT
                                 trace_id,
-                                usage
+                                usage,
+                                total_estimated_cost
                             FROM spans
                             WHERE workspace_id = :workspace_id
                             AND project_id = :project_id
@@ -745,6 +788,12 @@ class TraceDAOImpl implements TraceDAO {
             statement.bind("tags", new String[]{});
         }
 
+        if (trace.errorInfo() != null) {
+            statement.bind("error_info", JsonUtils.readTree(trace.errorInfo()).toString());
+        } else {
+            statement.bind("error_info", "");
+        }
+
         return statement;
     }
 
@@ -799,6 +848,9 @@ class TraceDAOImpl implements TraceDAO {
         Optional.ofNullable(traceUpdate.metadata())
                 .ifPresent(metadata -> statement.bind("metadata", metadata.toString()));
 
+        Optional.ofNullable(traceUpdate.errorInfo())
+                .ifPresent(errorInfo -> statement.bind("error_info", JsonUtils.readTree(errorInfo).toString()));
+
         Optional.ofNullable(traceUpdate.endTime())
                 .ifPresent(endTime -> statement.bind("end_time", endTime.toString()));
     }
@@ -820,6 +872,9 @@ class TraceDAOImpl implements TraceDAO {
 
         Optional.ofNullable(traceUpdate.endTime())
                 .ifPresent(endTime -> template.add("end_time", endTime.toString()));
+
+        Optional.ofNullable(traceUpdate.errorInfo())
+                .ifPresent(errorInfo -> template.add("error_info", JsonUtils.readTree(errorInfo).toString()));
 
         return template;
     }
@@ -890,10 +945,15 @@ class TraceDAOImpl implements TraceDAO {
                 .totalEstimatedCost(row.get("total_estimated_cost", BigDecimal.class).compareTo(BigDecimal.ZERO) == 0
                         ? null
                         : row.get("total_estimated_cost", BigDecimal.class))
+                .errorInfo(Optional.ofNullable(row.get("error_info", String.class))
+                        .filter(str -> !str.isBlank())
+                        .map(errorInfo -> JsonUtils.readValue(errorInfo, ERROR_INFO_TYPE))
+                        .orElse(null))
                 .createdAt(row.get("created_at", Instant.class))
                 .lastUpdatedAt(row.get("last_updated_at", Instant.class))
                 .createdBy(row.get("created_by", String.class))
                 .lastUpdatedBy(row.get("last_updated_by", String.class))
+                .duration(row.get("duration_millis", Double.class))
                 .build());
     }
 
@@ -996,6 +1056,7 @@ class TraceDAOImpl implements TraceDAO {
                     filterQueryBuilder.bind(statement, filters, FilterStrategy.TRACE);
                     filterQueryBuilder.bind(statement, filters, FilterStrategy.TRACE_AGGREGATION);
                     filterQueryBuilder.bind(statement, filters, FilterStrategy.FEEDBACK_SCORES);
+                    filterQueryBuilder.bind(statement, filters, FilterStrategy.DURATION);
                 });
     }
 
@@ -1053,7 +1114,9 @@ class TraceDAOImpl implements TraceDAO {
                         .bind("input" + i, getOrDefault(trace.input()))
                         .bind("output" + i, getOrDefault(trace.output()))
                         .bind("metadata" + i, getOrDefault(trace.metadata()))
-                        .bind("tags" + i, trace.tags() != null ? trace.tags().toArray(String[]::new) : new String[]{});
+                        .bind("tags" + i, trace.tags() != null ? trace.tags().toArray(String[]::new) : new String[]{})
+                        .bind("error_info" + i,
+                                trace.errorInfo() != null ? JsonUtils.readTree(trace.errorInfo()).toString() : "");
 
                 if (trace.endTime() != null) {
                     statement.bind("end_time" + i, trace.endTime().toString());
@@ -1123,6 +1186,15 @@ class TraceDAOImpl implements TraceDAO {
                             result -> result.map((row, rowMetadata) -> StatsMapper.mapProjectStats(row, "trace_count")))
                     .singleOrEmpty();
         });
+    }
+
+    @Override
+    public Mono<Long> getDailyTraces() {
+        return asyncTemplate
+                .nonTransaction(
+                        connection -> Mono.from(connection.createStatement(TRACE_COUNT_BY_WORKSPACE_ID).execute()))
+                .flatMapMany(result -> result.map((row, rowMetadata) -> row.get("trace_count", Long.class)))
+                .reduce(0L, Long::sum);
     }
 
     @Override

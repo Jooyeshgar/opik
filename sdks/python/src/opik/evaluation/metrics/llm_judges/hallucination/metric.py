@@ -14,7 +14,7 @@ LOGGER = logging.getLogger(__name__)
 
 
 class HallucinationResponseFormat(pydantic.BaseModel):
-    score: int
+    score: float
     reason: List[str]
 
 
@@ -30,6 +30,7 @@ class Hallucination(base_metric.BaseMetric):
             `opik.evaluation.models.LiteLLMChatModel` is used by default.
         name: The name of the metric.
         few_shot_examples: A list of few-shot examples to use for hallucination detection.  If None, default examples will be used.
+        track: Whether to track the metric. Defaults to True.
 
     Example:
         >>> from opik.evaluation.metrics import Hallucination
@@ -50,8 +51,9 @@ class Hallucination(base_metric.BaseMetric):
         model: Optional[Union[str, base_model.OpikBaseModel]] = None,
         name: str = "hallucination_metric",
         few_shot_examples: Optional[List[template.FewShotExampleHallucination]] = None,
+        track: bool = True,
     ):
-        super().__init__(name=name)
+        super().__init__(name=name, track=track)
         self._init_model(model)
         self.few_shot_examples = few_shot_examples
 
@@ -130,7 +132,7 @@ class Hallucination(base_metric.BaseMetric):
     def _parse_model_output(self, content: str) -> score_result.ScoreResult:
         try:
             dict_content = json.loads(content)
-            score = dict_content["score"]
+            score = float(dict_content["score"])
             return score_result.ScoreResult(
                 name=self.name,
                 value=score,

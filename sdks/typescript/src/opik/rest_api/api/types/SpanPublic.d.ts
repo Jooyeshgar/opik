@@ -18,10 +18,13 @@ export interface SpanPublic {
     provider?: string;
     tags?: string[];
     usage?: Record<string, number>;
+    errorInfo?: OpikApi.ErrorInfoPublic;
     createdAt?: Date;
     lastUpdatedAt?: Date;
     createdBy?: string;
     lastUpdatedBy?: string;
     feedbackScores?: OpikApi.FeedbackScorePublic[];
     totalEstimatedCost?: number;
+    /** Duration in milliseconds as a decimal number to support sub-millisecond precision */
+    duration?: number;
 }

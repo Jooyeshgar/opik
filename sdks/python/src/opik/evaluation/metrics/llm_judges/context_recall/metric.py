@@ -31,6 +31,7 @@ class ContextRecall(base_metric.BaseMetric):
             `opik.evaluation.models.LiteLLMChatModel` is used by default.
         name: The name of the metric. Defaults to "ContextRecallMetric".
         few_shot_examples: A list of few-shot examples to provide to the model. If None, uses the default few-shot examples.
+        track: Whether to track the metric. Defaults to True.
 
     Example:
         >>> from opik.evaluation.metrics import ContextRecall
@@ -47,9 +48,11 @@ class ContextRecall(base_metric.BaseMetric):
         model: Optional[Union[str, base_model.OpikBaseModel]] = None,
         name: str = "context_recall_metric",
         few_shot_examples: Optional[List[template.FewShotExampleContextRecall]] = None,
+        track: bool = True,
     ):
         super().__init__(
             name=name,
+            track=track,
         )
 
         self._init_model(model)
@@ -138,7 +141,7 @@ class ContextRecall(base_metric.BaseMetric):
     def _parse_model_output(self, content: str) -> score_result.ScoreResult:
         try:
             dict_content = json.loads(content)
-            score: float = dict_content["context_recall_score"]
+            score: float = float(dict_content["context_recall_score"])
 
             if not (0.0 <= score <= 1.0):
                 score = 0.5

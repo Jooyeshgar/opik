@@ -44,6 +44,7 @@ public record Span(
         @JsonView({Span.View.Public.class, Span.View.Write.class}) String provider,
         @JsonView({Span.View.Public.class, Span.View.Write.class}) Set<String> tags,
         @JsonView({Span.View.Public.class, Span.View.Write.class}) Map<String, Integer> usage,
+        @JsonView({Span.View.Public.class, Span.View.Write.class}) ErrorInfo errorInfo,
         @JsonView({Span.View.Public.class}) @Schema(accessMode = Schema.AccessMode.READ_ONLY) Instant createdAt,
         @JsonView({Span.View.Public.class}) @Schema(accessMode = Schema.AccessMode.READ_ONLY) Instant lastUpdatedAt,
         @JsonView({Span.View.Public.class}) @Schema(accessMode = Schema.AccessMode.READ_ONLY) String createdBy,
@@ -51,7 +52,9 @@ public record Span(
         @JsonView({
                 Span.View.Public.class}) @Schema(accessMode = Schema.AccessMode.READ_ONLY) List<FeedbackScore> feedbackScores,
         @JsonView({
-                Span.View.Public.class}) @Schema(accessMode = Schema.AccessMode.READ_ONLY) BigDecimal totalEstimatedCost){
+                Span.View.Public.class}) @Schema(accessMode = Schema.AccessMode.READ_ONLY) BigDecimal totalEstimatedCost,
+        @JsonView({
+                Span.View.Public.class}) @Schema(accessMode = Schema.AccessMode.READ_ONLY, description = "Duration in milliseconds as a decimal number to support sub-millisecond precision") Double duration){
 
     public record SpanPage(
             @JsonView(Span.View.Public.class) int page,

@@ -28,11 +28,12 @@ class Moderation(base_metric.BaseMetric):
             `opik.evaluation.models.LiteLLMChatModel` is used by default.
         name: The name of the metric. Defaults to "moderation_metric".
         few_shot_examples: A list of few-shot examples to be used in the query. If None, default examples will be used.
+        track: Whether to track the metric. Defaults to True.
 
     Example:
         >>> from opik.evaluation.metrics import Moderation
         >>> moderation_metric = Moderation()
-        >>> result = moderation_metric.score("Hello", "Hello, how can I help you?")
+        >>> result = moderation_metric.score("Hello, how can I help you?")
         >>> print(result.value)  # A float between 0.0 and 1.0
         >>> print(result.reason)  # Explanation for the score
     """
@@ -42,9 +43,11 @@ class Moderation(base_metric.BaseMetric):
         model: Optional[Union[str, base_model.OpikBaseModel]] = None,
         name: str = "moderation_metric",
         few_shot_examples: Optional[List[template.FewShotExampleModeration]] = None,
+        track: bool = True,
     ):
         super().__init__(
             name=name,
+            track=track,
         )
 
         self._init_model(model)
@@ -58,12 +61,11 @@ class Moderation(base_metric.BaseMetric):
         else:
             self._model = models_factory.get(model_name=model)
 
-    def score(self, input: str, **ignored_kwargs: Any) -> score_result.ScoreResult:
+    def score(self, output: str, **ignored_kwargs: Any) -> score_result.ScoreResult:
         """
         Calculate the moderation score for the given input-output pair.
 
         Args:
-            input: The input text to be evaluated.
             output: The output text to be evaluated.
             **ignored_kwargs (Any): Additional keyword arguments that are ignored.
 
@@ -72,7 +74,7 @@ class Moderation(base_metric.BaseMetric):
             (between 0.0 and 1.0) and a reason for the score.
         """
         llm_query = template.generate_query(
-            input=input, few_shot_examples=self.few_shot_examples
+            output=output, few_shot_examples=self.few_shot_examples
         )
         model_output = self._model.generate_string(
             input=llm_query, response_format=ModerationResponseFormat
@@ -81,7 +83,7 @@ class Moderation(base_metric.BaseMetric):
         return self._parse_model_output(model_output)
 
     async def ascore(
-        self, input: str, **ignored_kwargs: Any
+        self, output: str, **ignored_kwargs: Any
     ) -> score_result.ScoreResult:
         """
         Asynchronously calculate the moderation score for the given input-output pair.
@@ -90,7 +92,6 @@ class Moderation(base_metric.BaseMetric):
         please refer to the :meth:`score` method.
 
         Args:
-            input: The input text to be evaluated.
             output: The output text to be evaluated.
             **ignored_kwargs: Additional keyword arguments that are ignored.
 
@@ -99,7 +100,7 @@ class Moderation(base_metric.BaseMetric):
         """
 
         llm_query = template.generate_query(
-            input=input, few_shot_examples=self.few_shot_examples
+            output=output, few_shot_examples=self.few_shot_examples
         )
         model_output = await self._model.agenerate_string(
             input=llm_query, response_format=ModerationResponseFormat
@@ -110,7 +111,7 @@ class Moderation(base_metric.BaseMetric):
     def _parse_model_output(self, content: str) -> score_result.ScoreResult:
         try:
             dict_content = json.loads(content)
-            score: float = dict_content["score"]
+            score: float = float(dict_content["score"])
 
             if not (0.0 <= score <= 1.0):
                 score = 0.5

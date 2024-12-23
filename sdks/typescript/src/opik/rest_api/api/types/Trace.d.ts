@@ -14,6 +14,7 @@ export interface Trace {
     output?: OpikApi.JsonNode;
     metadata?: OpikApi.JsonNode;
     tags?: string[];
+    errorInfo?: OpikApi.ErrorInfo;
     usage?: Record<string, number>;
     createdAt?: Date;
     lastUpdatedAt?: Date;
@@ -21,4 +22,6 @@ export interface Trace {
     lastUpdatedBy?: string;
     feedbackScores?: OpikApi.FeedbackScore[];
     totalEstimatedCost?: number;
+    /** Duration in milliseconds as a decimal number to support sub-millisecond precision */
+    duration?: number;
 }

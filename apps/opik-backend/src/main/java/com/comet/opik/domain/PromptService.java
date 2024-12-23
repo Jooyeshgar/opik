@@ -35,7 +35,7 @@ import static java.util.stream.Collectors.toMap;
 
 @ImplementedBy(PromptServiceImpl.class)
 public interface PromptService {
-    Prompt create(Prompt prompt);
+    Prompt create(Prompt promptRequest);
 
     PromptPage find(String name, int page, int size);
 
@@ -44,6 +44,8 @@ public interface PromptService {
     void update(@NonNull UUID id, Prompt prompt);
 
     void delete(UUID id);
+
+    void delete(Set<UUID> ids);
 
     Prompt getById(UUID id);
 
@@ -73,13 +75,13 @@ class PromptServiceImpl implements PromptService {
     private final @NonNull TransactionTemplate transactionTemplate;
 
     @Override
-    public Prompt create(@NonNull Prompt prompt) {
+    public Prompt create(@NonNull Prompt promptRequest) {
 
         String workspaceId = requestContext.get().getWorkspaceId();
         String userName = requestContext.get().getUserName();
 
-        var newPrompt = prompt.toBuilder()
-                .id(prompt.id() == null ? idGenerator.generateId() : prompt.id())
+        var newPrompt = promptRequest.toBuilder()
+                .id(promptRequest.id() == null ? idGenerator.generateId() : promptRequest.id())
                 .createdBy(userName)
                 .lastUpdatedBy(userName)
                 .build();
@@ -92,17 +94,18 @@ class PromptServiceImpl implements PromptService {
                 createdPrompt.name(),
                 workspaceId);
 
-        if (!StringUtils.isEmpty(prompt.template())) {
+        if (!StringUtils.isEmpty(promptRequest.template())) {
             EntityConstraintHandler
-                    .handle(() -> createPromptVersionFromPromptRequest(createdPrompt, workspaceId, prompt.template()))
+                    .handle(() -> createPromptVersionFromPromptRequest(createdPrompt, workspaceId, promptRequest))
                     .withRetry(3, this::newVersionConflict);
         }
 
         return createdPrompt;
     }
 
-    private PromptVersion createPromptVersionFromPromptRequest(Prompt createdPrompt, String workspaceId,
-            String template) {
+    private PromptVersion createPromptVersionFromPromptRequest(Prompt createdPrompt,
+            String workspaceId,
+            Prompt promptRequest) {
         log.info("Creating prompt version for prompt id '{}'", createdPrompt.id());
 
         var createdVersion = transactionTemplate.inTransaction(WRITE, handle -> {
@@ -113,7 +116,9 @@ class PromptServiceImpl implements PromptService {
                     .id(versionId)
                     .promptId(createdPrompt.id())
                     .commit(CommitUtils.getCommit(versionId))
-                    .template(template)
+                    .template(promptRequest.template())
+                    .metadata(promptRequest.metadata())
+                    .changeDescription(promptRequest.changeDescription())
                     .createdBy(createdPrompt.createdBy())
                     .build();
 
@@ -280,6 +285,21 @@ class PromptServiceImpl implements PromptService {
                 log.info("Prompt with id '{}' not found", id);
             }
 
+            return null;
+        });
+    }
+
+    @Override
+    public void delete(Set<UUID> ids) {
+        if (ids.isEmpty()) {
+            log.info("ids list is empty, returning");
+            return;
+        }
+
+        String workspaceId = requestContext.get().getWorkspaceId();
+
+        transactionTemplate.inTransaction(WRITE, handle -> {
+            handle.attach(PromptDAO.class).delete(ids, workspaceId);
             return null;
         });
     }

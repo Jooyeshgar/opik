@@ -6,6 +6,7 @@ import * as OpikApi from "../../api/index";
 import * as core from "../../core";
 import { SpanType } from "./SpanType";
 import { JsonNode } from "./JsonNode";
+import { ErrorInfo } from "./ErrorInfo";
 import { FeedbackScore } from "./FeedbackScore";
 export declare const Span: core.serialization.ObjectSchema<serializers.Span.Raw, OpikApi.Span>;
 export declare namespace Span {
@@ -26,11 +27,13 @@ export declare namespace Span {
         provider?: string | null;
         tags?: string[] | null;
         usage?: Record<string, number> | null;
+        error_info?: ErrorInfo.Raw | null;
         created_at?: string | null;
         last_updated_at?: string | null;
         created_by?: string | null;
         last_updated_by?: string | null;
         feedback_scores?: FeedbackScore.Raw[] | null;
         total_estimated_cost?: number | null;
+        duration?: number | null;
     }
 }

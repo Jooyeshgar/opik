@@ -5,6 +5,7 @@ import typing
 import pydantic
 import datetime as dt
 from .json_node import JsonNode
+from .error_info import ErrorInfo
 from .feedback_score import FeedbackScore
 from ..core.pydantic_utilities import IS_PYDANTIC_V2
 
@@ -24,6 +25,7 @@ class Trace(UniversalBaseModel):
     output: typing.Optional[JsonNode] = None
     metadata: typing.Optional[JsonNode] = None
     tags: typing.Optional[typing.List[str]] = None
+    error_info: typing.Optional[ErrorInfo] = None
     usage: typing.Optional[typing.Dict[str, int]] = None
     created_at: typing.Optional[dt.datetime] = None
     last_updated_at: typing.Optional[dt.datetime] = None
@@ -31,6 +33,10 @@ class Trace(UniversalBaseModel):
     last_updated_by: typing.Optional[str] = None
     feedback_scores: typing.Optional[typing.List[FeedbackScore]] = None
     total_estimated_cost: typing.Optional[float] = None
+    duration: typing.Optional[float] = pydantic.Field(default=None)
+    """
+    Duration in milliseconds as a decimal number to support sub-millisecond precision
+    """
 
     if IS_PYDANTIC_V2:
         model_config: typing.ClassVar[pydantic.ConfigDict] = pydantic.ConfigDict(

@@ -14,8 +14,6 @@ import DatasetPage from "@/components/pages/DatasetPage/DatasetPage";
 import DatasetsPage from "@/components/pages/DatasetsPage/DatasetsPage";
 import ExperimentsPage from "@/components/pages/ExperimentsPage/ExperimentsPage";
 import CompareExperimentsPage from "@/components/pages/CompareExperimentsPage/CompareExperimentsPage";
-import FeedbackDefinitionsPage from "@/components/pages/FeedbackDefinitionsPage/FeedbackDefinitionsPage";
-import GetStartedPage from "@/components/pages/GetStartedPage/GetStartedPage";
 import QuickstartPage from "@/components/pages/QuickstartPage/QuickstartPage";
 import HomePage from "@/components/pages/HomePage/HomePage";
 import PartialPageLayout from "@/components/layout/PartialPageLayout/PartialPageLayout";
@@ -27,6 +25,9 @@ import PromptsPage from "@/components/pages/PromptsPage/PromptsPage";
 import PromptPage from "@/components/pages/PromptPage/PromptPage";
 import RedirectProjects from "@/components/redirect/RedirectProjects";
 import RedirectDatasets from "@/components/redirect/RedirectDatasets";
+import PlaygroundPage from "@/components/pages/PlaygroundPage/PlaygroundPage";
+import useAppStore from "@/store/AppStore";
+import ConfigurationPage from "@/components/pages/ConfigurationPage/ConfigurationPage";
 
 const TanStackRouterDevtools =
   process.env.NODE_ENV === "production"
@@ -60,10 +61,15 @@ const workspaceGuardPartialLayoutRoute = createRoute({
   component: () => <WorkspaceGuard Layout={PartialPageLayout} />,
 });
 
-const homeRoute = createRoute({
+const baseRoute = createRoute({
   path: "/",
   getParentRoute: () => workspaceGuardRoute,
-  component: HomePage,
+  component: () => (
+    <Navigate
+      to="/$workspaceName/home"
+      params={{ workspaceName: useAppStore.getState().activeWorkspaceName }}
+    />
+  ),
 });
 
 const workspaceRoute = createRoute({
@@ -79,11 +85,27 @@ const quickstartRoute = createRoute({
   component: QuickstartPage,
 });
 
+// TODO @deprecated, should be deleted after changes in EM app
 // ----------- get started
 const getStartedRoute = createRoute({
   path: "/$workspaceName/get-started",
   getParentRoute: () => workspaceGuardPartialLayoutRoute,
-  component: GetStartedPage,
+  component: () => (
+    <Navigate
+      to="/$workspaceName/home"
+      params={{ workspaceName: useAppStore.getState().activeWorkspaceName }}
+    />
+  ),
+});
+
+// ----------- home
+const homeRoute = createRoute({
+  path: "/$workspaceName/home",
+  getParentRoute: () => workspaceGuardRoute,
+  component: HomePage,
+  staticData: {
+    title: "Home",
+  },
 });
 
 // ----------- projects
@@ -114,21 +136,6 @@ const tracesRoute = createRoute({
   path: "/traces",
   getParentRoute: () => projectRoute,
   component: TracesPage,
-});
-
-// ----------- feedback definitions
-const feedbackDefinitionsRoute = createRoute({
-  path: "/feedback-definitions",
-  getParentRoute: () => workspaceRoute,
-  staticData: {
-    title: "Feedback",
-  },
-});
-
-const feedbackDefinitionsListRoute = createRoute({
-  path: "/",
-  getParentRoute: () => feedbackDefinitionsRoute,
-  component: FeedbackDefinitionsPage,
 });
 
 // ----------- experiments
@@ -237,19 +244,41 @@ const redirectDatasetsRoute = createRoute({
   component: RedirectDatasets,
 });
 
+// --------- playground
+
+const playgroundRoute = createRoute({
+  path: "/playground",
+  getParentRoute: () => workspaceRoute,
+  staticData: {
+    title: "Playground",
+  },
+  component: PlaygroundPage,
+});
+
+// --------- configuration
+
+const configurationRoute = createRoute({
+  path: "/configuration",
+  getParentRoute: () => workspaceRoute,
+  staticData: {
+    title: "Configuration",
+  },
+  component: ConfigurationPage,
+});
+
 const routeTree = rootRoute.addChildren([
   workspaceGuardPartialLayoutRoute.addChildren([
-    getStartedRoute,
     quickstartRoute,
+    getStartedRoute,
   ]),
   workspaceGuardRoute.addChildren([
+    baseRoute,
     homeRoute,
     workspaceRoute.addChildren([
       projectsRoute.addChildren([
         projectsListRoute,
         projectRoute.addChildren([tracesRoute]),
       ]),
-      feedbackDefinitionsRoute.addChildren([feedbackDefinitionsListRoute]),
       experimentsRoute.addChildren([
         experimentsListRoute,
         compareExperimentsRoute,
@@ -264,6 +293,8 @@ const routeTree = rootRoute.addChildren([
         redirectProjectsRoute,
         redirectDatasetsRoute,
       ]),
+      playgroundRoute,
+      configurationRoute,
     ]),
   ]),
 ]);

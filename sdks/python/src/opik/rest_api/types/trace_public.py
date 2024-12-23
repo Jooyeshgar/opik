@@ -4,9 +4,10 @@ from ..core.pydantic_utilities import UniversalBaseModel
 import typing
 import datetime as dt
 from .json_node_public import JsonNodePublic
+from .error_info_public import ErrorInfoPublic
 from .feedback_score_public import FeedbackScorePublic
-from ..core.pydantic_utilities import IS_PYDANTIC_V2
 import pydantic
+from ..core.pydantic_utilities import IS_PYDANTIC_V2
 
 
 class TracePublic(UniversalBaseModel):
@@ -19,6 +20,7 @@ class TracePublic(UniversalBaseModel):
     output: typing.Optional[JsonNodePublic] = None
     metadata: typing.Optional[JsonNodePublic] = None
     tags: typing.Optional[typing.List[str]] = None
+    error_info: typing.Optional[ErrorInfoPublic] = None
     usage: typing.Optional[typing.Dict[str, int]] = None
     created_at: typing.Optional[dt.datetime] = None
     last_updated_at: typing.Optional[dt.datetime] = None
@@ -26,6 +28,10 @@ class TracePublic(UniversalBaseModel):
     last_updated_by: typing.Optional[str] = None
     feedback_scores: typing.Optional[typing.List[FeedbackScorePublic]] = None
     total_estimated_cost: typing.Optional[float] = None
+    duration: typing.Optional[float] = pydantic.Field(default=None)
+    """
+    Duration in milliseconds as a decimal number to support sub-millisecond precision
+    """
 
     if IS_PYDANTIC_V2:
         model_config: typing.ClassVar[pydantic.ConfigDict] = pydantic.ConfigDict(

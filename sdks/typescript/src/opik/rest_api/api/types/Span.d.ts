@@ -20,10 +20,13 @@ export interface Span {
     provider?: string;
     tags?: string[];
     usage?: Record<string, number>;
+    errorInfo?: OpikApi.ErrorInfo;
     createdAt?: Date;
     lastUpdatedAt?: Date;
     createdBy?: string;
     lastUpdatedBy?: string;
     feedbackScores?: OpikApi.FeedbackScore[];
     totalEstimatedCost?: number;
+    /** Duration in milliseconds as a decimal number to support sub-millisecond precision */
+    duration?: number;
 }

@@ -5,6 +5,55 @@ sidebar_label: Changelog
 
 # Weekly Changelog
 
+## Week of 2024-12-16
+
+**Opik Dashboard**:
+
+- The Opik playground is now in public preview
+  ![playground](/img/changelog/2024-12-16/playground.png)
+- You can now view the prompt diff when updating a prompt from the UI
+- Errors in traces and spans are now displayed in the UI
+- Display agent graphs in the traces sidebar
+- Released a new plugin for the [Kong AI Gateway](/production/gateway.mdx)
+
+**SDK**:
+
+- Added support for serializing Pydantic models passed to decorated functions
+- Implemented `get_experiment_by_id` and `get_experiment_by_name` methods
+- Scoring metrics are now logged to the traces when using the `evaluate` method
+- New integration with [aisuite](/tracing/integrations/aisuite.md)
+- New integration with [Haystack](/tracing/integrations/haystack.md)
+
+## Week of 2024-12-09
+
+**Opik Dashboard**:
+
+- Updated the experiments pages to make it easier to analyze the results of each experiment. Columns are now organized based on where they came from (dataset, evaluation task, etc) and output keys are now displayed in multiple columns to make it easier to review
+  ![experiment item table](/img/changelog/2024-12-09/experiment_items_table.png)
+- Improved the performance of the experiments so experiment items load faster
+- Added descriptions for projects
+
+**SDK**:
+
+- Add cost tracking for OpenAI calls made using LangChain
+- Fixed a timeout issue when calling `get_or_create_dataset`
+
+## Week of 2024-12-02
+
+**Opik Dashboard**:
+
+- Added a new `created_by` column for each table to indicate who created the record
+- Mask the API key in the user menu
+
+**SDK**:
+
+- Implement background batch sending of traces to speed up processing of trace creation requests
+- Updated OpenAI integration to track cost of LLM calls
+- Updated `prompt.format` method to raise an error when it is called with the wrong arguments
+- Updated the `Opik` method so it accepts the `api_key` parameter as a positional argument
+- Improved the prompt template for the `hallucination` metric
+- Introduced a new `opik_check_tls_certificate` configuration option to disable the TLS certificate check.
+
 ## Week of 2024-11-25
 
 **Opik Dashboard**:

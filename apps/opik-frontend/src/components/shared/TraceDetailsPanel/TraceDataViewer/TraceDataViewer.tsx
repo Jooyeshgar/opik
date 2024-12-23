@@ -7,7 +7,10 @@ import { StringParam, useQueryParam } from "use-query-params";
 import { Clock, Coins, Copy, Hash, PenLine } from "lucide-react";
 
 import { Span, Trace } from "@/types/traces";
-import { TRACE_TYPE_FOR_TREE } from "@/constants/traces";
+import {
+  METADATA_AGENT_GRAPH_KEY,
+  TRACE_TYPE_FOR_TREE,
+} from "@/constants/traces";
 import BaseTraceDataTypeIcon from "../BaseTraceDataTypeIcon";
 import TooltipWrapper from "@/components/shared/TooltipWrapper/TooltipWrapper";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -15,15 +18,18 @@ import TagList from "../TagList/TagList";
 import InputOutputTab from "./InputOutputTab";
 import MetadataTab from "./MatadataTab";
 import FeedbackScoreTab from "./FeedbackScoreTab";
+import AgentGraphTab from "./AgentGraphTab";
+import ErrorTab from "./ErrorTab";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/use-toast";
-import { calcDuration, millisecondsToSeconds } from "@/lib/utils";
+import { formatDuration } from "@/lib/date";
 import { isObjectSpan } from "@/lib/traces";
 import isUndefined from "lodash/isUndefined";
 import { formatCost } from "@/lib/money";
 
 type TraceDataViewerProps = {
   data: Trace | Span;
+  trace?: Trace;
   projectId: string;
   traceId: string;
   spanId?: string;
@@ -33,6 +39,7 @@ type TraceDataViewerProps = {
 
 const TraceDataViewer: React.FunctionComponent<TraceDataViewerProps> = ({
   data,
+  trace,
   projectId,
   traceId,
   spanId,
@@ -43,12 +50,24 @@ const TraceDataViewer: React.FunctionComponent<TraceDataViewerProps> = ({
   const isSpan = isObjectSpan(data);
   const type = get(data, "type", TRACE_TYPE_FOR_TREE);
   const entity = isSpan ? "span" : "trace";
-  const duration = calcDuration(data.start_time, data.end_time);
   const tokens = data.usage?.total_tokens;
+
+  const agentGraphData = get(
+    trace,
+    ["metadata", METADATA_AGENT_GRAPH_KEY],
+    null,
+  );
+  const hasAgentGraph = Boolean(agentGraphData);
+  const hasError = Boolean(data.error_info);
 
   const [tab = "input", setTab] = useQueryParam("traceTab", StringParam, {
     updateType: "replaceIn",
   });
+
+  const selectedTab =
+    (tab === "graph" && !hasAgentGraph) || (tab === "error" && !hasError)
+      ? "input"
+      : tab;
 
   const copyClickHandler = useCallback(() => {
     toast({
@@ -95,9 +114,7 @@ const TraceDataViewer: React.FunctionComponent<TraceDataViewerProps> = ({
                 className="flex items-center gap-2 px-1"
               >
                 <Clock className="size-4 shrink-0" />
-                {isNaN(duration)
-                  ? "NA"
-                  : `${millisecondsToSeconds(duration)} seconds`}
+                {formatDuration(data.duration)}
               </div>
             </TooltipWrapper>
             {isNumber(tokens) && (
@@ -143,7 +160,7 @@ const TraceDataViewer: React.FunctionComponent<TraceDataViewerProps> = ({
           />
         </div>
 
-        <Tabs defaultValue="input" value={tab as string} onValueChange={setTab}>
+        <Tabs defaultValue="input" value={selectedTab!} onValueChange={setTab}>
           <TabsList variant="underline">
             <TabsTrigger variant="underline" value="input">
               Input/Output
@@ -154,6 +171,16 @@ const TraceDataViewer: React.FunctionComponent<TraceDataViewerProps> = ({
             <TabsTrigger variant="underline" value="metadata">
               Metadata
             </TabsTrigger>
+            {hasAgentGraph && (
+              <TabsTrigger variant="underline" value="graph">
+                Agent graph
+              </TabsTrigger>
+            )}
+            {hasError && (
+              <TabsTrigger variant="underline" value="error">
+                Error
+              </TabsTrigger>
+            )}
           </TabsList>
           <TabsContent value="input">
             <InputOutputTab data={data} />
@@ -164,6 +191,16 @@ const TraceDataViewer: React.FunctionComponent<TraceDataViewerProps> = ({
           <TabsContent value="metadata">
             <MetadataTab data={data} />
           </TabsContent>
+          {hasAgentGraph && (
+            <TabsContent value="graph">
+              <AgentGraphTab data={agentGraphData} />
+            </TabsContent>
+          )}
+          {hasError && (
+            <TabsContent value="error">
+              <ErrorTab data={data} />
+            </TabsContent>
+          )}
         </Tabs>
       </div>
     </div>

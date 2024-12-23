@@ -17,6 +17,12 @@ export interface UsageData {
   total_tokens: number;
 }
 
+export interface BaseTraceDataErrorInfo {
+  exception_type: string;
+  message?: string;
+  traceback: string;
+}
+
 export interface BaseTraceData {
   id: string;
   name: string;
@@ -24,14 +30,15 @@ export interface BaseTraceData {
   output: object;
   start_time: string;
   end_time: string;
+  duration: number;
   created_at: string;
   last_updated_at: string;
   metadata: object;
   feedback_scores?: TraceFeedbackScore[];
   tags: string[];
   usage?: UsageData;
-
   total_estimated_cost?: number;
+  error_info?: BaseTraceDataErrorInfo;
 }
 
 export interface Trace extends BaseTraceData {
@@ -54,3 +61,8 @@ export interface Span extends BaseTraceData {
 }
 
 export type BASE_TRACE_DATA_TYPE = SPAN_TYPE | "trace";
+
+export interface AgentGraphData {
+  format: "mermaid";
+  data: string;
+}

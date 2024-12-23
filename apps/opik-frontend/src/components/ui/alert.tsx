@@ -10,7 +10,7 @@ const alertVariants = cva(
       variant: {
         default: "bg-muted text-foreground-secondary",
         destructive:
-          "border-destructive/50 text-destructive dark:border-destructive [&>svg]:text-destructive",
+          "border border-destructive/50 text-destructive dark:border-destructive [&>svg]:text-destructive",
       },
     },
     defaultVariants: {
@@ -38,7 +38,7 @@ const AlertTitle = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <h5
     ref={ref}
-    className={cn("mb-1 font-medium leading-none tracking-tight", className)}
+    className={cn("mb-1 comet-body-s-accented", className)}
     {...props}
   />
 ));
@@ -50,7 +50,10 @@ const AlertDescription = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <div
     ref={ref}
-    className={cn("text-sm leading-6 [&_p]:leading-relaxed", className)}
+    className={cn(
+      "comet-body-s text-light-slate leading-6 [&_p]:leading-relaxed",
+      className,
+    )}
     {...props}
   />
 ));

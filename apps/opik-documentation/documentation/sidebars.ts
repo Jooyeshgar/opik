@@ -19,7 +19,17 @@ const sidebars: SidebarsConfig = {
       type: "category",
       label: "Self-host",
       collapsed: true,
-      items: ["self-host/overview", "self-host/local_deployment", "self-host/kubernetes"],
+      items: [
+        "self-host/overview",
+        "self-host/local_deployment",
+        "self-host/kubernetes",
+        {
+          type: "category",
+          label: "Configuration",
+          collapsed: true,
+          items: ["self-host/configure/anonymous_usage_statistics"],
+        },
+      ],
     },
     {
       type: "category",
@@ -27,6 +37,7 @@ const sidebars: SidebarsConfig = {
       collapsed: false,
       items: [
         "tracing/log_traces",
+        "tracing/log_agents",
         "tracing/log_multimodal_traces",
         "tracing/log_distributed_traces",
         "tracing/annotate_traces",
@@ -43,10 +54,13 @@ const sidebars: SidebarsConfig = {
             "tracing/integrations/openai",
             "tracing/integrations/litellm",
             "tracing/integrations/langchain", // Everything after this one should be ordered by name
+            "tracing/integrations/aisuite",
             "tracing/integrations/anthropic",
             "tracing/integrations/bedrock",
+            "tracing/integrations/dify",
             "tracing/integrations/gemini",
             "tracing/integrations/groq",
+            "tracing/integrations/haystack",
             "tracing/integrations/langgraph",
             "tracing/integrations/llama_index",
             "tracing/integrations/ollama",
@@ -66,6 +80,7 @@ const sidebars: SidebarsConfig = {
         "evaluation/manage_datasets",
         "evaluation/evaluate_your_llm",
         "evaluation/update_existing_experiment",
+        "evaluation/playground",
         {
           type: "category",
           label: "Metrics",
@@ -88,7 +103,7 @@ const sidebars: SidebarsConfig = {
     {
       type: "category",
       label: "Prompt Management",
-      collapsed: false,
+      collapsed: true,
       items: ["library/prompt_management", "library/managing_prompts_in_code"],
     },
     {
@@ -99,6 +114,12 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: "category",
+      label: "Production",
+      collapsed: true,
+      items: ["production/gateway"],
+    },
+    {
+      type: "category",
       label: "Cookbooks",
       collapsed: true,
       items: [
@@ -106,10 +127,12 @@ const sidebars: SidebarsConfig = {
         "cookbook/openai",
         "cookbook/litellm",
         "cookbook/langchain", // Everything after this one should be ordered by name
+        "cookbook/aisuite",
         "cookbook/anthropic",
         "cookbook/bedrock",
         "cookbook/gemini",
         "cookbook/groq",
+        "cookbook/haystack",
         "cookbook/langgraph",
         "cookbook/llama-index",
         "cookbook/ollama",

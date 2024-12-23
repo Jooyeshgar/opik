@@ -44,11 +44,13 @@ import LinkCell from "@/components/shared/DataTableCells/LinkCell";
 import CodeCell from "@/components/shared/DataTableCells/CodeCell";
 import ListCell from "@/components/shared/DataTableCells/ListCell";
 import CostCell from "@/components/shared/DataTableCells/CostCell";
+import ErrorCell from "@/components/shared/DataTableCells/ErrorCell";
+import DurationCell from "@/components/shared/DataTableCells/DurationCell";
 import FeedbackScoreCell from "@/components/shared/DataTableCells/FeedbackScoreCell";
 import FeedbackScoreHeader from "@/components/shared/DataTableHeaders/FeedbackScoreHeader";
 import TraceDetailsPanel from "@/components/shared/TraceDetailsPanel/TraceDetailsPanel";
 import TooltipWrapper from "@/components/shared/TooltipWrapper/TooltipWrapper";
-import { formatDate } from "@/lib/date";
+import { formatDate, formatDuration } from "@/lib/date";
 import useTracesOrSpansStatistic from "@/hooks/useTracesOrSpansStatistic";
 import { useDynamicColumnsCache } from "@/hooks/useDynamicColumnsCache";
 
@@ -95,6 +97,13 @@ const SHARED_COLUMNS: ColumnData<BaseTraceData>[] = [
     cell: CodeCell as never,
   },
   {
+    id: "duration",
+    label: "Duration",
+    type: COLUMN_TYPE.duration,
+    cell: DurationCell as never,
+    statisticDataFormater: formatDuration,
+  },
+  {
     id: "metadata",
     label: "Metadata",
     type: COLUMN_TYPE.dictionary,
@@ -139,6 +148,12 @@ const SHARED_COLUMNS: ColumnData<BaseTraceData>[] = [
 const TRACES_PAGE_COLUMNS = [
   ...SHARED_COLUMNS,
   {
+    id: "error_info",
+    label: "Error",
+    type: COLUMN_TYPE.string,
+    cell: ErrorCell as never,
+  },
+  {
     id: "created_by",
     label: "Created by",
     type: COLUMN_TYPE.string,
@@ -165,7 +180,12 @@ const DEFAULT_TRACES_COLUMN_PINNING: ColumnPinningState = {
   right: [],
 };
 
-const DEFAULT_TRACES_PAGE_COLUMNS: string[] = ["name", "input", "output"];
+const DEFAULT_TRACES_PAGE_COLUMNS: string[] = [
+  "name",
+  "input",
+  "output",
+  "duration",
+];
 
 const SELECTED_COLUMNS_KEY = "traces-selected-columns";
 const COLUMNS_WIDTH_KEY = "traces-columns-width";
@@ -297,11 +317,13 @@ export const TracesSpansTab: React.FC<TracesSpansTabProps> = ({
   });
 
   const dynamicScoresColumns = useMemo(() => {
-    return (feedbackScoresData?.scores ?? []).map<DynamicColumn>((c) => ({
-      id: `feedback_scores.${c.name}`,
-      label: c.name,
-      columnType: COLUMN_TYPE.number,
-    }));
+    return (feedbackScoresData?.scores ?? [])
+      .sort((c1, c2) => c1.name.localeCompare(c2.name))
+      .map<DynamicColumn>((c) => ({
+        id: `feedback_scores.${c.name}`,
+        label: c.name,
+        columnType: COLUMN_TYPE.number,
+      }));
   }, [feedbackScoresData?.scores]);
 
   const dynamicColumnsIds = useMemo(
@@ -358,7 +380,6 @@ export const TracesSpansTab: React.FC<TracesSpansTabProps> = ({
         id: COLUMN_ID_ID,
         label: "ID",
         type: COLUMN_TYPE.string,
-        size: columnsWidth[COLUMN_ID_ID],
         cell: LinkCell as never,
         customMeta: {
           callback: handleRowClick,
@@ -369,7 +390,6 @@ export const TracesSpansTab: React.FC<TracesSpansTabProps> = ({
         TRACES_PAGE_COLUMNS,
         {
           columnsOrder,
-          columnsWidth,
           selectedColumns,
         },
       ),
@@ -377,13 +397,11 @@ export const TracesSpansTab: React.FC<TracesSpansTabProps> = ({
         scoresColumnsData,
         {
           columnsOrder: scoresColumnsOrder,
-          columnsWidth,
           selectedColumns,
         },
       ),
     ];
   }, [
-    columnsWidth,
     handleRowClick,
     columnsOrder,
     selectedColumns,
@@ -416,10 +434,22 @@ export const TracesSpansTab: React.FC<TracesSpansTabProps> = ({
   const resizeConfig = useMemo(
     () => ({
       enabled: true,
+      columnSizing: columnsWidth,
       onColumnResize: setColumnsWidth,
     }),
-    [setColumnsWidth],
+    [columnsWidth, setColumnsWidth],
   );
+
+  const columnSections = useMemo(() => {
+    return [
+      {
+        title: "Feedback scores",
+        columns: scoresColumnsData,
+        order: scoresColumnsOrder,
+        onOrderChange: setScoresColumnsOrder,
+      },
+    ];
+  }, [scoresColumnsData, scoresColumnsOrder, setScoresColumnsOrder]);
 
   if (isPending || isFeedbackScoresPending) {
     return <Loader />;
@@ -481,12 +511,7 @@ export const TracesSpansTab: React.FC<TracesSpansTabProps> = ({
             onSelectionChange={setSelectedColumns}
             order={columnsOrder}
             onOrderChange={setColumnsOrder}
-            extraSection={{
-              title: "Feedback Scores",
-              columns: scoresColumnsData,
-              order: scoresColumnsOrder,
-              onOrderChange: setScoresColumnsOrder,
-            }}
+            sections={columnSections}
           ></ColumnsButton>
         </div>
       </div>
