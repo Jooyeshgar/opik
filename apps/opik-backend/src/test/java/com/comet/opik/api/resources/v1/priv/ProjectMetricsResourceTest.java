@@ -5,7 +5,6 @@ import com.comet.opik.api.FeedbackScoreBatchItem;
 import com.comet.opik.api.Span;
 import com.comet.opik.api.TimeInterval;
 import com.comet.opik.api.Trace;
-import com.comet.opik.api.error.ErrorMessage;
 import com.comet.opik.api.metrics.MetricType;
 import com.comet.opik.api.metrics.ProjectMetricRequest;
 import com.comet.opik.api.metrics.ProjectMetricResponse;
@@ -81,9 +80,9 @@ import java.util.stream.Stream;
 
 import static com.comet.opik.api.resources.utils.ClickHouseContainerUtils.DATABASE_NAME;
 import static com.comet.opik.api.resources.utils.MigrationUtils.CLICKHOUSE_CHANGELOG_FILE;
+import static com.comet.opik.api.resources.utils.TestHttpClientUtils.UNAUTHORIZED_RESPONSE;
 import static com.comet.opik.infrastructure.auth.RequestContext.SESSION_COOKIE;
 import static com.comet.opik.infrastructure.auth.RequestContext.WORKSPACE_HEADER;
-import static com.comet.opik.infrastructure.auth.TestHttpClientUtils.UNAUTHORIZED_RESPONSE;
 import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.matching;
 import static com.github.tomakehurst.wiremock.client.WireMock.matchingJsonPath;
@@ -394,9 +393,10 @@ class ProjectMetricsResourceTest {
                 assertThat(response.getStatus()).isEqualTo(HttpStatus.SC_BAD_REQUEST);
                 assertThat(response.hasEntity()).isTrue();
 
-                var actualError = response.readEntity(ErrorMessage.class);
+                var actualError = response.readEntity(io.dropwizard.jersey.errors.ErrorMessage.class);
 
-                assertThat(actualError).isEqualTo(new ErrorMessage(List.of("Unable to process JSON")));
+                assertThat(actualError.getMessage()).startsWith(
+                        "Unable to process JSON. Cannot deserialize value of type `com.comet.opik.api.metrics.MetricType` from String \"non-existing-metric\"");
             }
         }
 
@@ -708,6 +708,7 @@ class ProjectMetricsResourceTest {
                                     "prompt_tokens", RANDOM.nextInt(),
                                     "completion_tokens", RANDOM.nextInt()))
                             .traceId(trace.id())
+                            .totalEstimatedCost(null)
                             .build())
                     .toList();
 

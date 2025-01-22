@@ -1,6 +1,6 @@
 ---
-sidebar_position: 4
 sidebar_label: Annotate Traces
+description: Describes how to annotate traces using the Opik SDK and UI
 ---
 
 # Annotate Traces
@@ -26,6 +26,12 @@ You can annotate both traces and spans through the UI, make sure you have select
 :::tip
 In order to ensure a consistent set of feedback, you will need to define feedback definitions in the `Feedback Definitions` page which supports both numerical and categorical annotations.
 :::
+
+## Online evaluation
+
+You don't need to manually annotate each trace to measure the performance of your LLM applications! By using Opik's [online evaluation feature](/production/rules.md), you can define LLM as a Judge metrics that will automatically score all, or a subset, of your production traces.
+
+![Online evaluation](/img/production/online_evaluation.gif)
 
 ## Annotating traces and spans using the SDK
 
@@ -111,7 +117,7 @@ from opik.evaluation.metrics import Contains
 metric = Contains()
 score = metric.score(
     output="The quick brown fox jumps over the lazy dog.",
-    expected_output="The quick brown fox jumps over the lazy dog."
+    reference="The quick brown fox jumps over the lazy dog."
 )
 ```
 

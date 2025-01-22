@@ -48,11 +48,8 @@ class MessageSender(BaseMessageProcessor):
 
         try:
             handler(message)
-        except Exception as exception:
-            if (
-                isinstance(exception, rest_api_core.ApiError)
-                and exception.status_code == 409
-            ):
+        except rest_api_core.ApiError as exception:
+            if exception.status_code == 409:
                 # sometimes retry mechanism works in a way that it sends the same request 2 times.
                 # second request is rejected by the backend, we don't want users to an error.
                 return
@@ -60,7 +57,12 @@ class MessageSender(BaseMessageProcessor):
             LOGGER.error(
                 logging_messages.FAILED_TO_PROCESS_MESSAGE_IN_BACKGROUND_STREAMER,
                 message_type.__name__,
-                message,
+                str(exception),
+            )
+        except Exception as exception:
+            LOGGER.error(
+                logging_messages.FAILED_TO_PROCESS_MESSAGE_IN_BACKGROUND_STREAMER,
+                message_type.__name__,
                 str(exception),
                 exc_info=True,
             )
@@ -137,7 +139,7 @@ class MessageSender(BaseMessageProcessor):
             for score_message in message.batch
         ]
 
-        LOGGER.debug("Batch of spans feedbacks scores request: %s", scores)
+        LOGGER.debug("Add spans feedbacks scores request of size: %d", len(scores))
 
         self._rest_client.spans.score_batch_of_spans(
             scores=scores,
@@ -152,7 +154,7 @@ class MessageSender(BaseMessageProcessor):
             for score_message in message.batch
         ]
 
-        LOGGER.debug("Batch of traces feedbacks scores request: %s", scores)
+        LOGGER.debug("Add traces feedbacks scores request: %d", len(scores))
 
         self._rest_client.traces.score_batch_of_traces(
             scores=scores,

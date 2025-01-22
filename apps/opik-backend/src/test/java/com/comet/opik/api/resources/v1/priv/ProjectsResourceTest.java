@@ -2,21 +2,31 @@ package com.comet.opik.api.resources.v1.priv;
 
 import com.comet.opik.TestComparators;
 import com.comet.opik.api.BatchDelete;
+import com.comet.opik.api.FeedbackScore;
+import com.comet.opik.api.FeedbackScoreAverage;
+import com.comet.opik.api.FeedbackScoreBatchItem;
 import com.comet.opik.api.Project;
 import com.comet.opik.api.ProjectRetrieve;
+import com.comet.opik.api.ProjectStats;
 import com.comet.opik.api.ProjectUpdate;
+import com.comet.opik.api.Span;
 import com.comet.opik.api.Trace;
 import com.comet.opik.api.TraceUpdate;
 import com.comet.opik.api.error.ErrorMessage;
 import com.comet.opik.api.resources.utils.AuthTestUtils;
+import com.comet.opik.api.resources.utils.BigDecimalCollectors;
 import com.comet.opik.api.resources.utils.ClickHouseContainerUtils;
 import com.comet.opik.api.resources.utils.ClientSupportUtils;
+import com.comet.opik.api.resources.utils.DurationUtils;
 import com.comet.opik.api.resources.utils.MigrationUtils;
 import com.comet.opik.api.resources.utils.MySQLContainerUtils;
 import com.comet.opik.api.resources.utils.RedisContainerUtils;
+import com.comet.opik.api.resources.utils.StatsUtils;
 import com.comet.opik.api.resources.utils.TestDropwizardAppExtensionUtils;
 import com.comet.opik.api.resources.utils.TestUtils;
 import com.comet.opik.api.resources.utils.WireMockUtils;
+import com.comet.opik.api.resources.utils.resources.ProjectResourceClient;
+import com.comet.opik.api.resources.utils.resources.SpanResourceClient;
 import com.comet.opik.api.resources.utils.resources.TraceResourceClient;
 import com.comet.opik.api.sorting.Direction;
 import com.comet.opik.api.sorting.SortableFields;
@@ -26,13 +36,14 @@ import com.comet.opik.domain.ProjectService;
 import com.comet.opik.infrastructure.DatabaseAnalyticsFactory;
 import com.comet.opik.podam.PodamFactoryUtils;
 import com.comet.opik.utils.JsonUtils;
+import com.comet.opik.utils.ValidationUtils;
 import com.github.tomakehurst.wiremock.client.WireMock;
 import com.redis.testcontainers.RedisContainer;
 import jakarta.ws.rs.HttpMethod;
 import jakarta.ws.rs.client.Entity;
 import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.core.MediaType;
-import org.apache.hc.core5.http.HttpStatus;
+import org.apache.http.HttpStatus;
 import org.jdbi.v3.core.Jdbi;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -54,13 +65,19 @@ import org.testcontainers.shaded.org.awaitility.Awaitility;
 import ru.vyarus.dropwizard.guice.test.ClientSupport;
 import ru.vyarus.dropwizard.guice.test.jupiter.ext.TestDropwizardAppExtension;
 import uk.co.jemos.podam.api.PodamFactory;
+import uk.co.jemos.podam.api.PodamUtils;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.sql.SQLException;
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
@@ -68,18 +85,22 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
+import static com.comet.opik.api.resources.utils.AssertionUtils.assertFeedbackScoreNames;
 import static com.comet.opik.api.resources.utils.ClickHouseContainerUtils.DATABASE_NAME;
 import static com.comet.opik.api.resources.utils.MigrationUtils.CLICKHOUSE_CHANGELOG_FILE;
+import static com.comet.opik.api.resources.utils.TestHttpClientUtils.UNAUTHORIZED_RESPONSE;
 import static com.comet.opik.domain.ProjectService.DEFAULT_PROJECT;
 import static com.comet.opik.infrastructure.auth.RequestContext.SESSION_COOKIE;
 import static com.comet.opik.infrastructure.auth.RequestContext.WORKSPACE_HEADER;
-import static com.comet.opik.infrastructure.auth.TestHttpClientUtils.UNAUTHORIZED_RESPONSE;
 import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.matching;
 import static com.github.tomakehurst.wiremock.client.WireMock.matchingJsonPath;
 import static com.github.tomakehurst.wiremock.client.WireMock.okJson;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
+import static java.util.stream.Collectors.averagingDouble;
+import static java.util.stream.Collectors.groupingBy;
+import static java.util.stream.Collectors.toMap;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.params.provider.Arguments.arguments;
 
@@ -91,7 +112,7 @@ class ProjectsResourceTest {
     public static final String URL_TEMPLATE = "%s/v1/private/projects";
     public static final String URL_TEMPLATE_TRACE = "%s/v1/private/traces";
     public static final String[] IGNORED_FIELDS = {"createdBy", "lastUpdatedBy", "createdAt", "lastUpdatedAt",
-            "lastUpdatedTraceAt"};
+            "lastUpdatedTraceAt", "feedbackScores", "duration", "totalEstimatedCost", "usage"};
 
     private static final String API_KEY = UUID.randomUUID().toString();
     private static final String USER = UUID.randomUUID().toString();
@@ -125,6 +146,8 @@ class ProjectsResourceTest {
     private ClientSupport client;
     private ProjectService projectService;
     private TraceResourceClient traceResourceClient;
+    private SpanResourceClient spanResourceClient;
+    private ProjectResourceClient projectResourceClient;
 
     @BeforeAll
     void setUpAll(ClientSupport client, Jdbi jdbi, ProjectService projectService) throws SQLException {
@@ -145,6 +168,8 @@ class ProjectsResourceTest {
         mockTargetWorkspace(API_KEY, TEST_WORKSPACE, WORKSPACE_ID);
 
         this.traceResourceClient = new TraceResourceClient(this.client, baseURI);
+        this.spanResourceClient = new SpanResourceClient(this.client, baseURI);
+        this.projectResourceClient = new ProjectResourceClient(this.client, baseURI, factory);
     }
 
     private static void mockTargetWorkspace(String apiKey, String workspaceName, String workspaceId) {
@@ -832,21 +857,25 @@ class ProjectsResourceTest {
 
             mockTargetWorkspace(apiKey, workspaceName, workspaceId);
 
-            List<Project> projects = PodamFactoryUtils.manufacturePojoList(factory, Project.class);
+            List<Project> projects = createProjectsWithLastTrace(apiKey, workspaceName);
 
-            projects = projects.stream().map(project -> {
-                UUID projectId = createProject(project, apiKey, workspaceName);
-                List<UUID> traceIds = IntStream.range(0, 5)
-                        .mapToObj(i -> createCreateTrace(project.name(), apiKey, workspaceName))
-                        .toList();
+            requestAndAssertLastTraceSorting(workspaceName, apiKey, projects, request, expected, 1, projects.size());
+        }
 
-                Trace trace = getTrace(traceIds.getLast(), apiKey, workspaceName);
-                return project.toBuilder()
-                        .id(projectId)
-                        .lastUpdatedTraceAt(trace.lastUpdatedAt()).build();
-            }).toList();
+        @Test
+        @DisplayName("when fetching all project with last trace sorting and out of range pagination, then return empty list")
+        void getProjects__whenSortingProjectsByLastTraceWithPagination__thenReturnEmptyList() {
+            final int OUT_OF_RANGE_PAGE = 3;
+            String workspaceName = UUID.randomUUID().toString();
+            String apiKey = UUID.randomUUID().toString();
+            String workspaceId = UUID.randomUUID().toString();
 
-            requestAndAssertLastTraceSorting(workspaceName, apiKey, projects, request, expected);
+            mockTargetWorkspace(apiKey, workspaceName, workspaceId);
+
+            List<Project> projects = createProjectsWithLastTrace(apiKey, workspaceName);
+
+            requestAndAssertLastTraceSorting(workspaceName, apiKey, List.of(), Direction.DESC, Direction.DESC,
+                    OUT_OF_RANGE_PAGE, projects.size());
         }
 
         @ParameterizedTest
@@ -881,9 +910,10 @@ class ProjectsResourceTest {
                         return project.toBuilder().id(projectId).build();
                     }).toList();
 
+            List<Project> allProjects = Stream.concat(withTraceProjects.stream(), noTraceProjects.stream()).toList();
+
             requestAndAssertLastTraceSorting(
-                    workspaceName, apiKey, Stream.concat(withTraceProjects.stream(), noTraceProjects.stream()).toList(),
-                    request, expected);
+                    workspaceName, apiKey, allProjects, request, expected, 1, allProjects.size());
         }
 
         public static Stream<Arguments> sortDirectionProvider() {
@@ -891,6 +921,22 @@ class ProjectsResourceTest {
                     Arguments.of(Named.of("non specified", null), Direction.ASC),
                     Arguments.of(Named.of("ascending", Direction.ASC), Direction.ASC),
                     Arguments.of(Named.of("descending", Direction.DESC), Direction.DESC));
+        }
+
+        private List<Project> createProjectsWithLastTrace(String apiKey, String workspaceName) {
+            List<Project> projects = PodamFactoryUtils.manufacturePojoList(factory, Project.class);
+
+            return projects.stream().map(project -> {
+                UUID projectId = createProject(project, apiKey, workspaceName);
+                List<UUID> traceIds = IntStream.range(0, 5)
+                        .mapToObj(i -> createCreateTrace(project.name(), apiKey, workspaceName))
+                        .toList();
+
+                Trace trace = getTrace(traceIds.getLast(), apiKey, workspaceName);
+                return project.toBuilder()
+                        .id(projectId)
+                        .lastUpdatedTraceAt(trace.lastUpdatedAt()).build();
+            }).toList();
         }
 
         @ParameterizedTest
@@ -1095,6 +1141,253 @@ class ProjectsResourceTest {
         }
 
         @Test
+        @DisplayName("when projects with traces, spans, feedback scores, and usage, then return project aggregations")
+        void getProjects__whenProjectsHasTracesSpansFeedbackScoresAndUsage__thenReturnProjectAggregations() {
+            String workspaceName = UUID.randomUUID().toString();
+            String apiKey = UUID.randomUUID().toString();
+            String workspaceId = UUID.randomUUID().toString();
+
+            mockTargetWorkspace(apiKey, workspaceName, workspaceId);
+
+            var projects = PodamFactoryUtils.manufacturePojoList(factory, Project.class)
+                    .parallelStream()
+                    .map(project -> project.toBuilder()
+                            .id(createProject(project, apiKey, workspaceName))
+                            .totalEstimatedCost(null)
+                            .usage(null)
+                            .feedbackScores(null)
+                            .duration(null)
+                            .build())
+                    .toList();
+
+            List<Project> expectedProjects = projects.parallelStream()
+                    .map(project -> buildProjectStats(project, apiKey, workspaceName))
+                    .sorted(Comparator.comparing(Project::id).reversed())
+                    .toList();
+
+            var actualResponse = client.target(URL_TEMPLATE.formatted(baseURI))
+                    .request()
+                    .header(HttpHeaders.AUTHORIZATION, apiKey)
+                    .header(WORKSPACE_HEADER, workspaceName)
+                    .get();
+
+            var actualEntity = actualResponse.readEntity(Project.ProjectPage.class);
+            assertThat(actualResponse.getStatusInfo().getStatusCode()).isEqualTo(org.apache.http.HttpStatus.SC_OK);
+
+            assertThat(expectedProjects).hasSameSizeAs(actualEntity.content());
+
+            assertThat(actualEntity.content())
+                    .usingRecursiveComparison()
+                    .ignoringFields("createdBy", "lastUpdatedBy", "createdAt", "lastUpdatedAt", "lastUpdatedTraceAt")
+                    .ignoringCollectionOrder()
+                    .withComparatorForType(StatsUtils::bigDecimalComparator, BigDecimal.class)
+                    .withComparatorForFields(StatsUtils::closeToEpsilonComparator, "totalEstimatedCost")
+                    .isEqualTo(expectedProjects);
+        }
+
+        @Test
+        @DisplayName("when projects with traces, spans, feedback scores, and usage and sorted by last updated trace at, then return project aggregations")
+        void getProjects__whenProjectsHasTracesSpansFeedbackScoresAndUsageSortedLastTrace__thenReturnProjectAggregations() {
+            String workspaceName = UUID.randomUUID().toString();
+            String apiKey = UUID.randomUUID().toString();
+            String workspaceId = UUID.randomUUID().toString();
+
+            mockTargetWorkspace(apiKey, workspaceName, workspaceId);
+
+            var projects = PodamFactoryUtils.manufacturePojoList(factory, Project.class)
+                    .parallelStream()
+                    .map(project -> project.toBuilder()
+                            .id(createProject(project, apiKey, workspaceName))
+                            .totalEstimatedCost(null)
+                            .usage(null)
+                            .feedbackScores(null)
+                            .duration(null)
+                            .build())
+                    .toList();
+
+            List<Project> expectedProjects = projects.parallelStream()
+                    .map(project -> buildProjectStats(project, apiKey, workspaceName))
+                    .sorted(Comparator.comparing(Project::id).reversed())
+                    .toList();
+
+            var sorting = List.of(SortingField.builder()
+                    .field(SortableFields.LAST_UPDATED_TRACE_AT)
+                    .direction(Direction.DESC)
+                    .build());
+
+            var actualResponse = client.target(URL_TEMPLATE.formatted(baseURI))
+                    .queryParam("sorting", URLEncoder.encode(JsonUtils.writeValueAsString(sorting),
+                            StandardCharsets.UTF_8))
+                    .request()
+                    .header(HttpHeaders.AUTHORIZATION, apiKey)
+                    .header(WORKSPACE_HEADER, workspaceName)
+                    .get();
+
+            var actualEntity = actualResponse.readEntity(Project.ProjectPage.class);
+            assertThat(actualResponse.getStatusInfo().getStatusCode()).isEqualTo(org.apache.http.HttpStatus.SC_OK);
+
+            assertThat(expectedProjects).hasSameSizeAs(actualEntity.content());
+
+            assertThat(actualEntity.content())
+                    .usingRecursiveComparison()
+                    .ignoringFields("createdBy", "lastUpdatedBy", "createdAt", "lastUpdatedAt", "lastUpdatedTraceAt")
+                    .ignoringCollectionOrder()
+                    .withComparatorForType(StatsUtils::bigDecimalComparator, BigDecimal.class)
+                    .withComparatorForFields(StatsUtils::closeToEpsilonComparator, "totalEstimatedCost")
+                    .isEqualTo(expectedProjects);
+        }
+
+        @Test
+        @DisplayName("when projects without traces, spans, feedback scores, and usage, then return project aggregations")
+        void getProjects__whenProjectsHasNoTracesSpansFeedbackScoresAndUsage__thenReturnProjectAggregations() {
+            String workspaceName = UUID.randomUUID().toString();
+            String apiKey = UUID.randomUUID().toString();
+            String workspaceId = UUID.randomUUID().toString();
+
+            mockTargetWorkspace(apiKey, workspaceName, workspaceId);
+
+            var projects = PodamFactoryUtils.manufacturePojoList(factory, Project.class)
+                    .parallelStream()
+                    .map(project -> project.toBuilder()
+                            .id(createProject(project, apiKey, workspaceName))
+                            .totalEstimatedCost(null)
+                            .usage(null)
+                            .feedbackScores(null)
+                            .duration(null)
+                            .build())
+                    .toList();
+
+            List<Project> expectedProjects = projects.parallelStream()
+                    .map(project -> project.toBuilder()
+                            .duration(null)
+                            .totalEstimatedCost(null)
+                            .usage(null)
+                            .feedbackScores(null)
+                            .build())
+                    .sorted(Comparator.comparing(Project::id).reversed())
+                    .toList();
+
+            var actualResponse = client.target(URL_TEMPLATE.formatted(baseURI))
+                    .request()
+                    .header(HttpHeaders.AUTHORIZATION, apiKey)
+                    .header(WORKSPACE_HEADER, workspaceName)
+                    .get();
+
+            var actualEntity = actualResponse.readEntity(Project.ProjectPage.class);
+            assertThat(actualResponse.getStatusInfo().getStatusCode()).isEqualTo(org.apache.http.HttpStatus.SC_OK);
+
+            assertThat(expectedProjects).hasSameSizeAs(actualEntity.content());
+
+            assertThat(actualEntity.content())
+                    .usingRecursiveComparison()
+                    .ignoringFields("createdBy", "lastUpdatedBy", "createdAt", "lastUpdatedAt", "lastUpdatedTraceAt")
+                    .ignoringCollectionOrder()
+                    .withComparatorForType(StatsUtils::bigDecimalComparator, BigDecimal.class)
+                    .withComparatorForFields(StatsUtils::closeToEpsilonComparator, "totalEstimatedCost")
+                    .isEqualTo(expectedProjects);
+        }
+
+        private Project buildProjectStats(Project project, String apiKey, String workspaceName) {
+            var traces = PodamFactoryUtils.manufacturePojoList(factory, Trace.class).stream()
+                    .map(trace -> {
+                        Instant startTime = Instant.now();
+                        Instant endTime = startTime.plusMillis(PodamUtils.getIntegerInRange(1, 1000));
+                        return trace.toBuilder()
+                                .projectName(project.name())
+                                .startTime(startTime)
+                                .endTime(endTime)
+                                .duration(DurationUtils.getDurationInMillisWithSubMilliPrecision(startTime, endTime))
+                                .build();
+                    })
+                    .toList();
+
+            traceResourceClient.batchCreateTraces(traces, apiKey, workspaceName);
+
+            List<FeedbackScoreBatchItem> scores = PodamFactoryUtils.manufacturePojoList(factory,
+                    FeedbackScoreBatchItem.class);
+
+            traces = traces.stream().map(trace -> {
+                List<Span> spans = PodamFactoryUtils.manufacturePojoList(factory, Span.class).stream()
+                        .map(span -> span.toBuilder()
+                                .usage(spanResourceClient.getTokenUsage())
+                                .model(spanResourceClient.randomModelPrice().getName())
+                                .traceId(trace.id())
+                                .projectName(trace.projectName())
+                                .totalEstimatedCost(null)
+                                .build())
+                        .toList();
+
+                spanResourceClient.batchCreateSpans(spans, apiKey, workspaceName);
+
+                List<FeedbackScoreBatchItem> feedbackScores = scores.stream()
+                        .map(feedbackScore -> feedbackScore.toBuilder()
+                                .projectId(project.id())
+                                .projectName(project.name())
+                                .id(trace.id())
+                                .build())
+                        .toList();
+
+                traceResourceClient.feedbackScores(feedbackScores, apiKey, workspaceName);
+
+                return trace.toBuilder()
+                        .feedbackScores(
+                                feedbackScores.stream()
+                                        .map(score -> FeedbackScore.builder()
+                                                .value(score.value())
+                                                .name(score.name())
+                                                .build())
+                                        .toList())
+                        .usage(StatsUtils.aggregateSpansUsage(spans))
+                        .totalEstimatedCost(StatsUtils.aggregateSpansCost(spans))
+                        .build();
+            }).toList();
+
+            List<BigDecimal> durations = StatsUtils.calculateQuantiles(
+                    traces.stream()
+                            .map(Trace::duration)
+                            .toList(),
+                    List.of(0.5, 0.90, 0.99));
+
+            return project.toBuilder()
+                    .duration(new ProjectStats.PercentageValues(durations.get(0), durations.get(1), durations.get(2)))
+                    .totalEstimatedCost(getTotalEstimatedCost(traces))
+                    .usage(traces.stream()
+                            .map(Trace::usage)
+                            .flatMap(usage -> usage.entrySet().stream())
+                            .collect(groupingBy(Map.Entry::getKey, averagingDouble(Map.Entry::getValue))))
+                    .feedbackScores(getScoreAverages(traces))
+                    .build();
+        }
+
+        private List<FeedbackScoreAverage> getScoreAverages(List<Trace> traces) {
+            return traces.stream()
+                    .map(Trace::feedbackScores)
+                    .flatMap(List::stream)
+                    .collect(groupingBy(FeedbackScore::name,
+                            BigDecimalCollectors.averagingBigDecimal(FeedbackScore::value)))
+                    .entrySet()
+                    .stream()
+                    .map(entry -> FeedbackScoreAverage.builder()
+                            .name(entry.getKey())
+                            .value(entry.getValue())
+                            .build())
+                    .toList();
+        }
+
+        private double getTotalEstimatedCost(List<Trace> traces) {
+            long count = traces.stream()
+                    .map(Trace::totalEstimatedCost)
+                    .filter(Objects::nonNull)
+                    .filter(cost -> cost.compareTo(BigDecimal.ZERO) > 0)
+                    .count();
+
+            return traces.stream()
+                    .map(Trace::totalEstimatedCost)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add)
+                    .divide(BigDecimal.valueOf(count), ValidationUtils.SCALE, RoundingMode.HALF_UP).doubleValue();
+        }
+
+        @Test
         @DisplayName("when projects is with traces created in batch, then return project with last updated trace at")
         void getProjects__whenProjectsHasTracesBatch__thenReturnProjectWithLastUpdatedTraceAt() {
             String workspaceName = UUID.randomUUID().toString();
@@ -1194,17 +1487,19 @@ class ProjectsResourceTest {
         }
 
         private void assertAllProjectsHavePersistedLastTraceAt(String workspaceId, List<Project> expectedProjects) {
-            List<Project> dbProjects = projectService.findByIds(workspaceId, expectedProjects.stream()
-                    .map(Project::id).collect(Collectors.toUnmodifiableSet()));
+            Awaitility.await().untilAsserted(() -> {
+                List<Project> dbProjects = projectService.findByIds(workspaceId, expectedProjects.stream()
+                        .map(Project::id).collect(Collectors.toUnmodifiableSet()));
+                Map<UUID, Instant> actualLastTraceByProjectId = dbProjects.stream()
+                        .collect(toMap(Project::id, Project::lastUpdatedTraceAt));
+                Map<UUID, Instant> expectedLastTraceByProjectId = expectedProjects.stream()
+                        .collect(toMap(Project::id, Project::lastUpdatedTraceAt));
 
-            for (Project project : expectedProjects) {
-                Awaitility.await().untilAsserted(() -> {
-                    assertThat(dbProjects.stream().filter(dbProject -> dbProject.id().equals(project.id()))
-                            .findFirst().orElseThrow().lastUpdatedTraceAt())
-                            .usingComparator(TestComparators::compareMicroNanoTime)
-                            .isEqualTo(project.lastUpdatedTraceAt());
-                });
-            }
+                assertThat(actualLastTraceByProjectId)
+                        .usingRecursiveComparison()
+                        .withComparatorForType(TestComparators::compareMicroNanoTime, Instant.class)
+                        .isEqualTo(expectedLastTraceByProjectId);
+            });
         }
     }
 
@@ -1274,17 +1569,8 @@ class ProjectsResourceTest {
                 .projectName(projectName)
                 .build();
 
-        try (var actualResponse = client.target(URL_TEMPLATE_TRACE.formatted(baseURI))
-                .request()
-                .header(HttpHeaders.AUTHORIZATION, apiKey)
-                .header(WORKSPACE_HEADER, workspaceName)
-                .post(Entity.json(trace))) {
-
-            assertThat(actualResponse.getStatusInfo().getStatusCode()).isEqualTo(201);
-            assertThat(actualResponse.hasEntity()).isFalse();
-
-            return TestUtils.getIdFromLocation(actualResponse.getLocation());
-        }
+        traceResourceClient.batchCreateTraces(List.of(trace), apiKey, workspaceName);
+        return trace.id();
     }
 
     private Trace getTrace(UUID id, String apiKey, String workspaceName) {
@@ -1330,14 +1616,15 @@ class ProjectsResourceTest {
     }
 
     private void requestAndAssertLastTraceSorting(String workspaceName, String apiKey, List<Project> allProjects,
-            Direction request, Direction expected) {
+            Direction request, Direction expected, int page, int size) {
         var sorting = List.of(SortingField.builder()
                 .field(SortableFields.LAST_UPDATED_TRACE_AT)
                 .direction(request)
                 .build());
 
         var actualResponse = client.target(URL_TEMPLATE.formatted(baseURI))
-                .queryParam("size", allProjects.size())
+                .queryParam("size", size)
+                .queryParam("page", page)
                 .queryParam("sorting", URLEncoder.encode(JsonUtils.writeValueAsString(sorting),
                         StandardCharsets.UTF_8))
                 .request()
@@ -1350,7 +1637,7 @@ class ProjectsResourceTest {
         assertThat(actualResponse.getStatusInfo().getStatusCode()).isEqualTo(200);
         assertThat(actualEntity.size()).isEqualTo(allProjects.size());
         assertThat(actualEntity.total()).isEqualTo(allProjects.size());
-        assertThat(actualEntity.page()).isEqualTo(1);
+        assertThat(actualEntity.page()).isEqualTo(page);
 
         if (expected == Direction.DESC) {
             allProjects = allProjects.reversed();
@@ -1782,6 +2069,62 @@ class ProjectsResourceTest {
                     .usingRecursiveComparison()
                     .ignoringCollectionOrder()
                     .isEqualTo(notDeletedIds);
+        }
+    }
+
+    @Nested
+    @DisplayName("Get Feedback Score names")
+    @TestInstance(TestInstance.Lifecycle.PER_CLASS)
+    class GetFeedbackScoreNames {
+
+        @ParameterizedTest
+        @ValueSource(booleans = {true, false})
+        @DisplayName("when get feedback score names, then return feedback score names")
+        void findFeedbackScoreNames(boolean userProjectId) {
+
+            // given
+            var apiKey = UUID.randomUUID().toString();
+            var workspaceId = UUID.randomUUID().toString();
+            var workspaceName = UUID.randomUUID().toString();
+
+            mockTargetWorkspace(apiKey, workspaceName, workspaceId);
+
+            // when
+            String projectName = UUID.randomUUID().toString();
+
+            UUID projectId = projectResourceClient.createProject(projectName, apiKey, workspaceName);
+            Project project = projectResourceClient.getProject(projectId, apiKey, workspaceName);
+
+            List<String> names = PodamFactoryUtils.manufacturePojoList(factory, String.class);
+            List<String> otherNames = PodamFactoryUtils.manufacturePojoList(factory, String.class);
+
+            // Create multiple values feedback scores
+            List<String> multipleValuesFeedbackScores = names.subList(0, names.size() - 1);
+
+            traceResourceClient.createMultiValueScores(
+                    multipleValuesFeedbackScores, project, apiKey, workspaceName);
+
+            traceResourceClient.createMultiValueScores(List.of(names.getLast()),
+                    project, apiKey, workspaceName);
+
+            // Create unexpected feedback scores
+            String unexpectedProjectName = UUID.randomUUID().toString();
+
+            UUID unexpectedProjectId = projectResourceClient.createProject(unexpectedProjectName, apiKey,
+                    workspaceName);
+            Project unexpectedProject = projectResourceClient.getProject(unexpectedProjectId, apiKey, workspaceName);
+
+            traceResourceClient.createMultiValueScores(otherNames, unexpectedProject,
+                    apiKey, workspaceName);
+
+            String projectIdsQueryParam = userProjectId ? JsonUtils.writeValueAsString(List.of(projectId)) : null;
+            List<String> expectedNames = userProjectId
+                    ? names
+                    : Stream.of(names, otherNames).flatMap(List::stream).toList();
+
+            var feedbackScoreNamesByProjectId = projectResourceClient.findFeedbackScoreNames(projectIdsQueryParam,
+                    apiKey, workspaceName);
+            assertFeedbackScoreNames(feedbackScoreNamesByProjectId, expectedNames);
         }
     }
 }

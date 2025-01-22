@@ -1,5 +1,6 @@
 ---
 sidebar_label: Anthropic
+description: Describes how to track Anthropic LLM calls using Opik
 ---
 
 # Anthropic
@@ -25,7 +26,7 @@ To start tracking your Anthropic LLM calls, you'll need to have both the `opik` 
 pip install opik anthropic
 ```
 
-In addition, you can configure Opik using the `opik configure` command which will prompt you for the correct local server address or if you are using the Cloud platfrom your API key:
+In addition, you can configure Opik using the `opik configure` command which will prompt you for the correct local server address or if you are using the Cloud platform your API key:
 
 ```bash
 opik configure
@@ -35,12 +36,10 @@ opik configure
 
 In order to configure Anthropic, you will need to have your Anthropic API Key set, see this [section how to pass your Anthropic API Key](https://github.com/anthropics/anthropic-sdk-python?tab=readme-ov-file#usage).
 
-Once you have it, you can set create your Anthropic client:
+Once you have it, you can set it as an environment variable:
 
-```python
-import anthropic
-
-anthropic_client = anthropic.Anthropic()
+```bash pytest_codeblocks_skip=true
+export ANTHROPIC_API_KEY="YOUR_API_KEY"
 ```
 
 ## Logging LLM calls
@@ -48,8 +47,10 @@ anthropic_client = anthropic.Anthropic()
 In order to log the LLM calls to Opik, you will need to create the wrap the anthropic client with `track_anthropic`. When making calls with that wrapped client, all calls will be logged to Opik:
 
 ```python
+import anthropic
 from opik.integrations.anthropic import track_anthropic
 
+anthropic_client = anthropic.Anthropic()
 anthropic_client = track_anthropic(anthropic_client, project_name="anthropic-integration-demo")
 
 PROMPT = "Why is it important to use a LLM Monitoring like CometML Opik tool that allows you to log traces and spans when working with Anthropic LLM Models?"

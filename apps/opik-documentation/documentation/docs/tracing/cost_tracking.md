@@ -1,3 +1,9 @@
+---
+sidebar_label: Cost Tracking
+description: Describes how to track and monitor costs for your LLM applications using Opik
+pytest_codeblocks_skip: true
+---
+
 # Cost Tracking
 
 Opik has been designed to track and monitor costs for your LLM applications by measuring token usage across all traces. Using the Opik dashboard, you can analyze spending patterns and quickly identify cost anomalies. All costs across Opik are estimated and displayed in USD.
@@ -37,9 +43,9 @@ You can retrieve the estimated cost programmatically for both spans and traces. 
 ```python
 import opik
 
-client = opik.Client()
+client = opik.Opik()
 
-span = client.get_span_content(SPAN_ID)
+span = client.get_span_content("<SPAN_ID>")
 # Returns estimated cost in USD, or None for unsupported models
 print(span.total_estimated_cost)
 ```
@@ -49,9 +55,9 @@ print(span.total_estimated_cost)
 ```python
 import opik
 
-client = opik.Client()
+client = opik.Opik()
 
-trace = client.get_trace_content(TRACE_ID)
+trace = client.get_trace_content("<TRACE_ID>")
 # Returns estimated cost in USD, or None for unsupported models
 print(trace.total_estimated_cost)
 ```

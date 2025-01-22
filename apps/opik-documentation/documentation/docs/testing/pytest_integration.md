@@ -1,6 +1,6 @@
 ---
-sidebar_position: 1
 sidebar_label: Pytest Integration
+description: Describes how to use Opik with Pytest to write LLM unit tests
 ---
 
 # Pytest Integration
@@ -27,7 +27,7 @@ def test_simple_passing_test():
     assert response == "Paris"
 ```
 
-When you run the tests, Opik will create a new experiment for each run and log each test result. My navigating to the `tests` dataset, you will see a new experiment for each test run.
+When you run the tests, Opik will create a new experiment for each run and log each test result. By navigating to the `tests` dataset, you will see a new experiment for each test run.
 
 ![Test Experiments](/img/testing/test_experiments.png)
 

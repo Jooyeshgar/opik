@@ -48,6 +48,8 @@ import static com.comet.opik.domain.FeedbackScoreDAO.EntityType;
 @ImplementedBy(TraceServiceImpl.class)
 public interface TraceService {
 
+    String PROJECT_NAME_AND_WORKSPACE_NAME_MISMATCH = "Project name and workspace name do not match the existing trace";
+
     Mono<UUID> create(Trace trace);
 
     Mono<Long> create(TraceBatch batch);
@@ -80,7 +82,6 @@ public interface TraceService {
 @RequiredArgsConstructor(onConstructor_ = @Inject)
 class TraceServiceImpl implements TraceService {
 
-    public static final String PROJECT_NAME_AND_WORKSPACE_NAME_MISMATCH = "Project name and workspace name do not match the existing trace";
     public static final String TRACE_KEY = "Trace";
 
     private final @NonNull TraceDAO dao;
@@ -105,10 +106,13 @@ class TraceServiceImpl implements TraceService {
                 .flatMap(project -> lockService.executeWithLock(
                         new LockService.Lock(id, TRACE_KEY),
                         Mono.defer(() -> insertTrace(trace, project, id)))
-                        .doOnSuccess(__ -> eventBus.post(new TracesCreated(
-                                Set.of(project.id()),
-                                ctx.get(RequestContext.WORKSPACE_ID),
-                                ctx.get(RequestContext.USER_NAME))))));
+                        .doOnSuccess(__ -> {
+                            var savedTrace = trace.toBuilder().projectId(project.id()).projectName(projectName).build();
+                            String workspaceId = ctx.get(RequestContext.WORKSPACE_ID);
+                            String userName = ctx.get(RequestContext.USER_NAME);
+
+                            eventBus.post(new TracesCreated(List.of(savedTrace), workspaceId, userName));
+                        })));
     }
 
     @WithSpan
@@ -130,29 +134,29 @@ class TraceServiceImpl implements TraceService {
                     .map(projects -> bindTraceToProjectAndId(batch, projects))
                     .subscribeOn(Schedulers.boundedElastic());
 
+            String workspaceId = ctx.get(RequestContext.WORKSPACE_ID);
+            String userName = ctx.get(RequestContext.USER_NAME);
+
             return resolveProjects
                     .flatMap(traces -> template.nonTransaction(connection -> dao.batchInsert(traces, connection))
-                            .doOnSuccess(__ -> eventBus.post(new TracesCreated(
-                                    traces.stream().map(Trace::projectId).collect(Collectors.toUnmodifiableSet()),
-                                    ctx.get(RequestContext.WORKSPACE_ID),
-                                    ctx.get(RequestContext.USER_NAME)))));
+                            .doOnSuccess(__ -> eventBus.post(new TracesCreated(traces, workspaceId, userName))));
         });
     }
 
     private List<Trace> bindTraceToProjectAndId(TraceBatch batch, List<Project> projects) {
         Map<String, Project> projectPerName = projects.stream()
-                .collect(Collectors.toMap(Project::name, Function.identity()));
+                .collect(Collectors.toMap(project -> project.name().toLowerCase(), Function.identity()));
 
         return batch.traces()
                 .stream()
                 .map(trace -> {
                     String projectName = WorkspaceUtils.getProjectName(trace.projectName());
-                    Project project = projectPerName.get(projectName);
+                    Project project = projectPerName.get(projectName.toLowerCase());
 
                     UUID id = trace.id() == null ? idGenerator.generateId() : trace.id();
                     IdGenerator.validateVersion(id, TRACE_KEY);
 
-                    return trace.toBuilder().id(id).projectId(project.id()).build();
+                    return trace.toBuilder().id(id).projectId(project.id()).projectName(project.name()).build();
                 })
                 .toList();
     }
@@ -168,8 +172,8 @@ class TraceServiceImpl implements TraceService {
     private <T> Mono<T> handleDBError(Throwable ex) {
         if (ex instanceof ClickHouseException
                 && ex.getMessage().contains("TOO_LARGE_STRING_SIZE")
-                && (ex.getMessage().contains("_CAST(project_id, FixedString(36))")
-                        && ex.getMessage().contains(", CAST(leftPad(workspace_id, 40, '*'), 'FixedString(19)') ::"))) {
+                && ex.getMessage().contains("String too long for type FixedString")
+                && (ex.getMessage().contains("project_id") || ex.getMessage().contains("workspace_id"))) {
 
             return failWithConflict(PROJECT_NAME_AND_WORKSPACE_NAME_MISMATCH);
         }

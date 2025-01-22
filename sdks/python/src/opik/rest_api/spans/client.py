@@ -88,7 +88,10 @@ class SpansClient:
         --------
         from Opik import OpikApi
 
-        client = OpikApi()
+        client = OpikApi(
+            api_key="YOUR_API_KEY",
+            workspace_name="YOUR_WORKSPACE_NAME",
+        )
         client.spans.add_span_feedback_score(
             id="id",
             name="name",
@@ -167,7 +170,10 @@ class SpansClient:
         --------
         from Opik import OpikApi
 
-        client = OpikApi()
+        client = OpikApi(
+            api_key="YOUR_API_KEY",
+            workspace_name="YOUR_WORKSPACE_NAME",
+        )
         client.spans.get_spans_by_project()
         """
         _response = self._client_wrapper.httpx_client.request(
@@ -218,6 +224,8 @@ class SpansClient:
         tags: typing.Optional[typing.Sequence[str]] = OMIT,
         usage: typing.Optional[typing.Dict[str, int]] = OMIT,
         error_info: typing.Optional[ErrorInfoWrite] = OMIT,
+        total_estimated_cost: typing.Optional[float] = OMIT,
+        total_estimated_cost_version: typing.Optional[str] = OMIT,
         request_options: typing.Optional[RequestOptions] = None,
     ) -> None:
         """
@@ -258,6 +266,10 @@ class SpansClient:
 
         error_info : typing.Optional[ErrorInfoWrite]
 
+        total_estimated_cost : typing.Optional[float]
+
+        total_estimated_cost_version : typing.Optional[str]
+
         request_options : typing.Optional[RequestOptions]
             Request-specific configuration.
 
@@ -271,7 +283,10 @@ class SpansClient:
 
         from Opik import OpikApi
 
-        client = OpikApi()
+        client = OpikApi(
+            api_key="YOUR_API_KEY",
+            workspace_name="YOUR_WORKSPACE_NAME",
+        )
         client.spans.create_span(
             trace_id="trace_id",
             name="name",
@@ -303,6 +318,8 @@ class SpansClient:
                 "error_info": convert_and_respect_annotation_metadata(
                     object_=error_info, annotation=ErrorInfoWrite, direction="write"
                 ),
+                "total_estimated_cost": total_estimated_cost,
+                "total_estimated_cost_version": total_estimated_cost_version,
             },
             request_options=request_options,
             omit=OMIT,
@@ -341,7 +358,10 @@ class SpansClient:
 
         from Opik import OpikApi, SpanWrite
 
-        client = OpikApi()
+        client = OpikApi(
+            api_key="YOUR_API_KEY",
+            workspace_name="YOUR_WORKSPACE_NAME",
+        )
         client.spans.create_spans(
             spans=[
                 SpanWrite(
@@ -401,7 +421,10 @@ class SpansClient:
         --------
         from Opik import OpikApi
 
-        client = OpikApi()
+        client = OpikApi(
+            api_key="YOUR_API_KEY",
+            workspace_name="YOUR_WORKSPACE_NAME",
+        )
         client.spans.get_span_by_id(
             id="id",
         )
@@ -456,7 +479,10 @@ class SpansClient:
         --------
         from Opik import OpikApi
 
-        client = OpikApi()
+        client = OpikApi(
+            api_key="YOUR_API_KEY",
+            workspace_name="YOUR_WORKSPACE_NAME",
+        )
         client.spans.delete_span_by_id(
             id="id",
         )
@@ -500,6 +526,7 @@ class SpansClient:
         provider: typing.Optional[str] = OMIT,
         tags: typing.Optional[typing.Sequence[str]] = OMIT,
         usage: typing.Optional[typing.Dict[str, int]] = OMIT,
+        total_estimated_cost: typing.Optional[float] = OMIT,
         error_info: typing.Optional[ErrorInfo] = OMIT,
         request_options: typing.Optional[RequestOptions] = None,
     ) -> None:
@@ -536,6 +563,8 @@ class SpansClient:
 
         usage : typing.Optional[typing.Dict[str, int]]
 
+        total_estimated_cost : typing.Optional[float]
+
         error_info : typing.Optional[ErrorInfo]
 
         request_options : typing.Optional[RequestOptions]
@@ -549,7 +578,10 @@ class SpansClient:
         --------
         from Opik import OpikApi
 
-        client = OpikApi()
+        client = OpikApi(
+            api_key="YOUR_API_KEY",
+            workspace_name="YOUR_WORKSPACE_NAME",
+        )
         client.spans.update_span(
             id="id",
             trace_id="trace_id",
@@ -571,6 +603,7 @@ class SpansClient:
                 "provider": provider,
                 "tags": tags,
                 "usage": usage,
+                "total_estimated_cost": total_estimated_cost,
                 "error_info": convert_and_respect_annotation_metadata(
                     object_=error_info, annotation=ErrorInfo, direction="write"
                 ),
@@ -626,7 +659,10 @@ class SpansClient:
         --------
         from Opik import OpikApi
 
-        client = OpikApi()
+        client = OpikApi(
+            api_key="YOUR_API_KEY",
+            workspace_name="YOUR_WORKSPACE_NAME",
+        )
         client.spans.delete_span_feedback_score(
             id="id",
             name="name",
@@ -677,7 +713,10 @@ class SpansClient:
         --------
         from Opik import OpikApi
 
-        client = OpikApi()
+        client = OpikApi(
+            api_key="YOUR_API_KEY",
+            workspace_name="YOUR_WORKSPACE_NAME",
+        )
         client.spans.find_feedback_score_names_1()
         """
         _response = self._client_wrapper.httpx_client.request(
@@ -740,7 +779,10 @@ class SpansClient:
         --------
         from Opik import OpikApi
 
-        client = OpikApi()
+        client = OpikApi(
+            api_key="YOUR_API_KEY",
+            workspace_name="YOUR_WORKSPACE_NAME",
+        )
         client.spans.get_span_stats()
         """
         _response = self._client_wrapper.httpx_client.request(
@@ -793,7 +835,10 @@ class SpansClient:
         --------
         from Opik import FeedbackScoreBatchItem, OpikApi
 
-        client = OpikApi()
+        client = OpikApi(
+            api_key="YOUR_API_KEY",
+            workspace_name="YOUR_WORKSPACE_NAME",
+        )
         client.spans.score_batch_of_spans(
             scores=[
                 FeedbackScoreBatchItem(
@@ -884,7 +929,10 @@ class AsyncSpansClient:
 
         from Opik import AsyncOpikApi
 
-        client = AsyncOpikApi()
+        client = AsyncOpikApi(
+            api_key="YOUR_API_KEY",
+            workspace_name="YOUR_WORKSPACE_NAME",
+        )
 
 
         async def main() -> None:
@@ -971,7 +1019,10 @@ class AsyncSpansClient:
 
         from Opik import AsyncOpikApi
 
-        client = AsyncOpikApi()
+        client = AsyncOpikApi(
+            api_key="YOUR_API_KEY",
+            workspace_name="YOUR_WORKSPACE_NAME",
+        )
 
 
         async def main() -> None:
@@ -1028,6 +1079,8 @@ class AsyncSpansClient:
         tags: typing.Optional[typing.Sequence[str]] = OMIT,
         usage: typing.Optional[typing.Dict[str, int]] = OMIT,
         error_info: typing.Optional[ErrorInfoWrite] = OMIT,
+        total_estimated_cost: typing.Optional[float] = OMIT,
+        total_estimated_cost_version: typing.Optional[str] = OMIT,
         request_options: typing.Optional[RequestOptions] = None,
     ) -> None:
         """
@@ -1068,6 +1121,10 @@ class AsyncSpansClient:
 
         error_info : typing.Optional[ErrorInfoWrite]
 
+        total_estimated_cost : typing.Optional[float]
+
+        total_estimated_cost_version : typing.Optional[str]
+
         request_options : typing.Optional[RequestOptions]
             Request-specific configuration.
 
@@ -1082,7 +1139,10 @@ class AsyncSpansClient:
 
         from Opik import AsyncOpikApi
 
-        client = AsyncOpikApi()
+        client = AsyncOpikApi(
+            api_key="YOUR_API_KEY",
+            workspace_name="YOUR_WORKSPACE_NAME",
+        )
 
 
         async def main() -> None:
@@ -1120,6 +1180,8 @@ class AsyncSpansClient:
                 "error_info": convert_and_respect_annotation_metadata(
                     object_=error_info, annotation=ErrorInfoWrite, direction="write"
                 ),
+                "total_estimated_cost": total_estimated_cost,
+                "total_estimated_cost_version": total_estimated_cost_version,
             },
             request_options=request_options,
             omit=OMIT,
@@ -1159,7 +1221,10 @@ class AsyncSpansClient:
 
         from Opik import AsyncOpikApi, SpanWrite
 
-        client = AsyncOpikApi()
+        client = AsyncOpikApi(
+            api_key="YOUR_API_KEY",
+            workspace_name="YOUR_WORKSPACE_NAME",
+        )
 
 
         async def main() -> None:
@@ -1227,7 +1292,10 @@ class AsyncSpansClient:
 
         from Opik import AsyncOpikApi
 
-        client = AsyncOpikApi()
+        client = AsyncOpikApi(
+            api_key="YOUR_API_KEY",
+            workspace_name="YOUR_WORKSPACE_NAME",
+        )
 
 
         async def main() -> None:
@@ -1290,7 +1358,10 @@ class AsyncSpansClient:
 
         from Opik import AsyncOpikApi
 
-        client = AsyncOpikApi()
+        client = AsyncOpikApi(
+            api_key="YOUR_API_KEY",
+            workspace_name="YOUR_WORKSPACE_NAME",
+        )
 
 
         async def main() -> None:
@@ -1340,6 +1411,7 @@ class AsyncSpansClient:
         provider: typing.Optional[str] = OMIT,
         tags: typing.Optional[typing.Sequence[str]] = OMIT,
         usage: typing.Optional[typing.Dict[str, int]] = OMIT,
+        total_estimated_cost: typing.Optional[float] = OMIT,
         error_info: typing.Optional[ErrorInfo] = OMIT,
         request_options: typing.Optional[RequestOptions] = None,
     ) -> None:
@@ -1376,6 +1448,8 @@ class AsyncSpansClient:
 
         usage : typing.Optional[typing.Dict[str, int]]
 
+        total_estimated_cost : typing.Optional[float]
+
         error_info : typing.Optional[ErrorInfo]
 
         request_options : typing.Optional[RequestOptions]
@@ -1391,7 +1465,10 @@ class AsyncSpansClient:
 
         from Opik import AsyncOpikApi
 
-        client = AsyncOpikApi()
+        client = AsyncOpikApi(
+            api_key="YOUR_API_KEY",
+            workspace_name="YOUR_WORKSPACE_NAME",
+        )
 
 
         async def main() -> None:
@@ -1419,6 +1496,7 @@ class AsyncSpansClient:
                 "provider": provider,
                 "tags": tags,
                 "usage": usage,
+                "total_estimated_cost": total_estimated_cost,
                 "error_info": convert_and_respect_annotation_metadata(
                     object_=error_info, annotation=ErrorInfo, direction="write"
                 ),
@@ -1476,7 +1554,10 @@ class AsyncSpansClient:
 
         from Opik import AsyncOpikApi
 
-        client = AsyncOpikApi()
+        client = AsyncOpikApi(
+            api_key="YOUR_API_KEY",
+            workspace_name="YOUR_WORKSPACE_NAME",
+        )
 
 
         async def main() -> None:
@@ -1535,7 +1616,10 @@ class AsyncSpansClient:
 
         from Opik import AsyncOpikApi
 
-        client = AsyncOpikApi()
+        client = AsyncOpikApi(
+            api_key="YOUR_API_KEY",
+            workspace_name="YOUR_WORKSPACE_NAME",
+        )
 
 
         async def main() -> None:
@@ -1606,7 +1690,10 @@ class AsyncSpansClient:
 
         from Opik import AsyncOpikApi
 
-        client = AsyncOpikApi()
+        client = AsyncOpikApi(
+            api_key="YOUR_API_KEY",
+            workspace_name="YOUR_WORKSPACE_NAME",
+        )
 
 
         async def main() -> None:
@@ -1667,7 +1754,10 @@ class AsyncSpansClient:
 
         from Opik import AsyncOpikApi, FeedbackScoreBatchItem
 
-        client = AsyncOpikApi()
+        client = AsyncOpikApi(
+            api_key="YOUR_API_KEY",
+            workspace_name="YOUR_WORKSPACE_NAME",
+        )
 
 
         async def main() -> None:

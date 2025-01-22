@@ -96,13 +96,15 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
+import static com.comet.opik.api.resources.utils.AssertionUtils.assertFeedbackScoreNames;
 import static com.comet.opik.api.resources.utils.ClickHouseContainerUtils.DATABASE_NAME;
 import static com.comet.opik.api.resources.utils.MigrationUtils.CLICKHOUSE_CHANGELOG_FILE;
 import static com.comet.opik.api.resources.utils.StatsUtils.getProjectTraceStatItems;
+import static com.comet.opik.api.resources.utils.TestHttpClientUtils.UNAUTHORIZED_RESPONSE;
 import static com.comet.opik.domain.ProjectService.DEFAULT_PROJECT;
+import static com.comet.opik.domain.TraceService.PROJECT_NAME_AND_WORKSPACE_NAME_MISMATCH;
 import static com.comet.opik.infrastructure.auth.RequestContext.SESSION_COOKIE;
 import static com.comet.opik.infrastructure.auth.RequestContext.WORKSPACE_HEADER;
-import static com.comet.opik.infrastructure.auth.TestHttpClientUtils.UNAUTHORIZED_RESPONSE;
 import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.matching;
 import static com.github.tomakehurst.wiremock.client.WireMock.matchingJsonPath;
@@ -3507,6 +3509,7 @@ class TracesResourceTest {
                             .usage(Map.of("completion_tokens", Math.abs(factory.manufacturePojo(Integer.class)),
                                     "prompt_tokens", Math.abs(factory.manufacturePojo(Integer.class))))
                             .model(model)
+                            .totalEstimatedCost(null)
                             .build())
                     .collect(Collectors.toList());
 
@@ -3567,6 +3570,13 @@ class TracesResourceTest {
         return traceResourceClient.createTrace(trace, apiKey, workspaceName);
     }
 
+    private void createAndAssertErrorMessage(Trace trace, String apiKey, String workspaceName, int status,
+            String errorMessage) {
+        try (var response = traceResourceClient.createTrace(trace, apiKey, workspaceName, status)) {
+            assertThat(response.readEntity(ErrorMessage.class).errors().getFirst()).isEqualTo(errorMessage);
+        }
+    }
+
     private void create(UUID entityId, FeedbackScore score, String workspaceName, String apiKey) {
         traceResourceClient.feedbackScore(entityId, score, workspaceName, apiKey);
     }
@@ -3621,8 +3631,8 @@ class TracesResourceTest {
         }
 
         @Test
-        @DisplayName("when creating traces with different workspaces names, then return created traces")
-        void create__whenCreatingTracesWithDifferentWorkspacesNames__thenReturnCreatedTraces() {
+        @DisplayName("when creating traces with different project names, then return created traces")
+        void create__whenCreatingTracesWithDifferentProjectNames__thenReturnCreatedTraces() {
             var projectName = RandomStringUtils.randomAlphanumeric(10);
 
             var trace1 = factory.manufacturePojo(Trace.class)
@@ -3645,6 +3655,35 @@ class TracesResourceTest {
 
             getAndAssert(trace1, projectId1, API_KEY, TEST_WORKSPACE);
             getAndAssert(trace2, projectId2, API_KEY, TEST_WORKSPACE);
+        }
+
+        @Test
+        @DisplayName("when creating traces with same Id for different workspaces, then return conflict")
+        void create__whenCreatingTracesWithSameIdForDifferentWorkspaces__thenReturnConflict() {
+
+            var trace1 = factory.manufacturePojo(Trace.class)
+                    .toBuilder()
+                    .projectName(DEFAULT_PROJECT)
+                    .usage(null)
+                    .feedbackScores(null)
+                    .build();
+            create(trace1, API_KEY, TEST_WORKSPACE);
+
+            String apiKey = UUID.randomUUID().toString();
+            String workspaceName = UUID.randomUUID().toString();
+            String workspaceId = UUID.randomUUID().toString();
+
+            mockTargetWorkspace(apiKey, workspaceName, workspaceId);
+
+            var trace2 = factory.manufacturePojo(Trace.class)
+                    .toBuilder()
+                    .id(trace1.id())
+                    .projectName(DEFAULT_PROJECT)
+                    .usage(null)
+                    .feedbackScores(null)
+                    .build();
+            createAndAssertErrorMessage(trace2, apiKey, workspaceName, HttpStatus.SC_CONFLICT,
+                    PROJECT_NAME_AND_WORKSPACE_NAME_MISMATCH);
         }
 
         @Test
@@ -3729,8 +3768,9 @@ class TracesResourceTest {
     @TestInstance(TestInstance.Lifecycle.PER_CLASS)
     class BatchInsert {
 
-        @Test
-        void batch__whenCreateTraces__thenReturnNoContent() {
+        @ParameterizedTest
+        @MethodSource
+        void batch__whenCreateTraces__thenReturnNoContent(Function<String, String> projectNameModifier) {
 
             var projectName = UUID.randomUUID().toString();
 
@@ -3738,7 +3778,7 @@ class TracesResourceTest {
 
             var expectedTraces = IntStream.range(0, 1000)
                     .mapToObj(i -> factory.manufacturePojo(Trace.class).toBuilder()
-                            .projectName(projectName)
+                            .projectName(projectNameModifier.apply(projectName))
                             .endTime(null)
                             .usage(null)
                             .feedbackScores(null)
@@ -3749,6 +3789,12 @@ class TracesResourceTest {
 
             getAndAssertPage(TEST_WORKSPACE, projectName, List.of(), List.of(), expectedTraces.reversed(), List.of(),
                     API_KEY);
+        }
+
+        Stream<Arguments> batch__whenCreateTraces__thenReturnNoContent() {
+            return Stream.of(
+                    arguments(Function.identity()),
+                    arguments((Function<String, String>) String::toUpperCase));
         }
 
         @Test
@@ -5199,6 +5245,7 @@ class TracesResourceTest {
                             .map(span -> span.toBuilder()
                                     .projectName(projectName)
                                     .traceId(trace.id())
+                                    .totalEstimatedCost(null)
                                     .build()))
                     .collect(Collectors.groupingBy(Span::traceId));
             batchCreateSpansAndAssert(
@@ -5243,6 +5290,7 @@ class TracesResourceTest {
                                     .traceId(trace.id())
                                     .startTime(trace.startTime())
                                     .usage(null)
+                                    .totalEstimatedCost(null)
                                     .build()))
                     .toList();
             batchCreateSpansAndAssert(spans, apiKey, workspaceName);
@@ -5364,6 +5412,7 @@ class TracesResourceTest {
                                 .traceId(trace.id())
                                 .projectName(projectName)
                                 .feedbackScores(null)
+                                .totalEstimatedCost(null)
                                 .build())
                         .toList();
 
@@ -6929,6 +6978,7 @@ class TracesResourceTest {
                             .projectName(projectName)
                             .traceId(trace.id())
                             .usage(Map.of(usageKey, otherUsageValue))
+                            .totalEstimatedCost(null)
                             .build())
                     .collect(Collectors.toMap(Span::traceId, Function.identity()));
             traceIdToSpanMap.put(traces.getFirst().id(), traceIdToSpanMap.get(traces.getFirst().id()).toBuilder()
@@ -6984,6 +7034,7 @@ class TracesResourceTest {
                             .projectName(projectName)
                             .traceId(trace.id())
                             .usage(Map.of(usageKey, 123))
+                            .totalEstimatedCost(null)
                             .build())
                     .collect(Collectors.toMap(Span::traceId, Function.identity()));
             traceIdToSpanMap.put(traces.getFirst().id(), traceIdToSpanMap.get(traces.getFirst().id()).toBuilder()
@@ -7034,6 +7085,7 @@ class TracesResourceTest {
                             .projectName(projectName)
                             .traceId(trace.id())
                             .usage(Map.of(usageKey, 123))
+                            .totalEstimatedCost(null)
                             .build())
                     .collect(Collectors.toMap(Span::traceId, Function.identity()));
             traceIdToSpanMap.put(traces.getFirst().id(), traceIdToSpanMap.get(traces.getFirst().id()).toBuilder()
@@ -7084,6 +7136,7 @@ class TracesResourceTest {
                             .projectName(projectName)
                             .traceId(trace.id())
                             .usage(Map.of(usageKey, 456))
+                            .totalEstimatedCost(null)
                             .build())
                     .collect(Collectors.toMap(Span::traceId, Function.identity()));
             traceIdToSpanMap.put(traces.getFirst().id(), traceIdToSpanMap.get(traces.getFirst().id()).toBuilder()
@@ -7134,6 +7187,7 @@ class TracesResourceTest {
                             .projectName(projectName)
                             .traceId(trace.id())
                             .usage(Map.of(usageKey, 456))
+                            .totalEstimatedCost(null)
                             .build())
                     .collect(Collectors.toMap(Span::traceId, Function.identity()));
             traceIdToSpanMap.put(traces.getFirst().id(), traceIdToSpanMap.get(traces.getFirst().id()).toBuilder()
@@ -7801,14 +7855,14 @@ class TracesResourceTest {
             // Create multiple values feedback scores
             List<String> multipleValuesFeedbackScores = names.subList(0, names.size() - 1);
 
-            createMultiValueScores(multipleValuesFeedbackScores, project, apiKey, workspaceName);
+            traceResourceClient.createMultiValueScores(multipleValuesFeedbackScores, project, apiKey, workspaceName);
 
-            createMultiValueScores(List.of(names.getLast()), project, apiKey, workspaceName);
+            traceResourceClient.createMultiValueScores(List.of(names.getLast()), project, apiKey, workspaceName);
 
             // Create unexpected feedback scores
             var unexpectedProject = factory.manufacturePojo(Project.class);
 
-            createMultiValueScores(otherNames, unexpectedProject, apiKey, workspaceName);
+            traceResourceClient.createMultiValueScores(otherNames, unexpectedProject, apiKey, workspaceName);
 
             fetchAndAssertResponse(names, projectId, apiKey, workspaceName);
         }
@@ -7833,38 +7887,8 @@ class TracesResourceTest {
             assertThat(actualResponse.getStatusInfo().getStatusCode()).isEqualTo(HttpStatus.SC_OK);
             var actualEntity = actualResponse.readEntity(FeedbackScoreNames.class);
 
-            assertThat(actualEntity.scores()).hasSize(expectedNames.size());
-            assertThat(actualEntity
-                    .scores()
-                    .stream()
-                    .map(FeedbackScoreNames.ScoreName::name)
-                    .toList()).containsExactlyInAnyOrderElementsOf(expectedNames);
+            assertFeedbackScoreNames(actualEntity, expectedNames);
         }
-    }
-
-    private List<List<FeedbackScoreBatchItem>> createMultiValueScores(List<String> multipleValuesFeedbackScores,
-            Project project, String apiKey, String workspaceName) {
-        return IntStream.range(0, multipleValuesFeedbackScores.size())
-                .mapToObj(i -> {
-
-                    Trace trace = factory.manufacturePojo(Trace.class).toBuilder()
-                            .name(project.name())
-                            .build();
-
-                    traceResourceClient.createTrace(trace, apiKey, workspaceName);
-
-                    List<FeedbackScoreBatchItem> scores = multipleValuesFeedbackScores.stream()
-                            .map(name -> factory.manufacturePojo(FeedbackScoreBatchItem.class).toBuilder()
-                                    .name(name)
-                                    .projectName(project.name())
-                                    .id(trace.id())
-                                    .build())
-                            .toList();
-
-                    traceResourceClient.feedbackScores(scores, apiKey, workspaceName);
-
-                    return scores;
-                }).toList();
     }
 
     private void createAndAssertForSpan(FeedbackScoreBatch request, String workspaceName, String apiKey) {

@@ -1,9 +1,62 @@
 ---
-sidebar_position: 101
 sidebar_label: Changelog
+description: Weelkly changelog for Opik
+pytest_codeblocks_skip: true
 ---
 
 # Weekly Changelog
+
+## Week of 2025-01-13
+
+**Opik Dashboard**:
+
+- Datasets are now supported in the playground allowing you to quickly evaluate prompts on multiple samples
+- Updated the models supported in the playground
+- Updated the quickstart guides to include all the supported integrations
+- Fix issue that means traces with text inputs can't be added to datasets
+- Add the ability to edit dataset descriptions in the UI
+- Released [online evaluation](/production/rules.md) rules - You can now define LLM as a Judge metrics that will automatically score all, or a subset, of your production traces.
+
+![Online evaluation](/img/changelog/2025-01-13/online_evaluation.gif)
+
+**SDK**:
+
+- New integration with [CrewAI](/tracing/integrations/crewai.md)
+- Released a new `evaluate_prompt` method that simplifies the evaluation of simple prompts templates
+- Added Sentry to the Python SDK so we can more easily
+
+## Week of 2025-01-06
+
+**Opik Dashboard**:
+
+- Fixed an issue with the trace viewer in Safari
+
+**SDK**:
+
+- Added a new `py.typed` file to the SDK to make it compatible with mypy
+
+## Week of 2024-12-30
+
+**Opik Dashboard**:
+
+- Added duration chart to the project dashboard
+- Prompt metadata can now be set and viewed in the UI, this can be used to store any additional information about the prompt
+- Playground prompts and settings are now cached when you navigate away from the page
+
+**SDK**:
+
+- Introduced a new `OPIK_TRACK_DISABLE` environment variable to disable the tracking of traces and spans
+- We now log usage information for traces logged using the LlamaIndex integration
+
+## Week of 2024-12-23
+
+**SDK**:
+
+- Improved error messages when getting a rate limit when using the `evaluate` method
+- Added support for a new metadata field in the `Prompt` object, this field is used to store any additional information about the prompt.
+- Updated the library used to create uuidv7 IDs
+- New Guardrails integration
+- New DSPY integration
 
 ## Week of 2024-12-16
 
@@ -138,7 +191,7 @@ sidebar_label: Changelog
 
 **SDK**:
 
-- Introduced the `Prompt` object in the SDK to manage prompts stored in the library. See the [Prompt Management](/library/managing_prompts_in_code.mdx) guide for more details.
+- Introduced the `Prompt` object in the SDK to manage prompts stored in the library. See the [Prompt Management](/prompt_engineering/managing_prompts_in_code.mdx) guide for more details.
 - Introduced a `Opik.search_spans` method to search for spans in a project. See the [Search spans](/tracing/export_data.md#exporting-spans) guide for more details.
 - Released a new integration with [AWS Bedrock](/tracing/integrations/bedrock.md) for using Opik with Bedrock models.
 

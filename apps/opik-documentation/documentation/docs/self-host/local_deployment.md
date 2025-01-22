@@ -1,5 +1,7 @@
 ---
 sidebar_label: Local (Docker Compose)
+description: Describes how to run Opik locally using Docker Compose
+pytest_codeblocks_skip: true
 ---
 
 # Local Deployments using Docker Compose

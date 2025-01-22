@@ -1,5 +1,6 @@
 ---
 sidebar_label: LangGraph
+description: Describes how to track LangGraph Agent executions using Opik
 ---
 
 # LangGraph
@@ -18,10 +19,10 @@ Opik provides a seamless integration with LangGraph, allowing you to easily log 
 To use the [`OpikTracer`](https://www.comet.com/docs/opik/python-sdk-reference/integrations/langchain/OpikTracer.html) with LangGraph, you'll need to have both the `opik` and `langgraph` packages installed. You can install them using pip:
 
 ```bash
-pip install opik langgraph
+pip install opik langgraph langchain
 ```
 
-In addition, you can configure Opik using the `opik configure` command which will prompt you for the correct local server address or if you are using the Cloud platfrom your API key:
+In addition, you can configure Opik using the `opik configure` command which will prompt you for the correct local server address or if you are using the Cloud platform your API key:
 
 ```bash
 opik configure
@@ -32,21 +33,37 @@ opik configure
 You can use the [`OpikTracer`](https://www.comet.com/docs/opik/python-sdk-reference/integrations/langchain/OpikTracer.html) callback with any LangGraph graph by passing it in as an argument to the `stream` or `invoke` functions:
 
 ```python
+from typing import List, Annotated
+from pydantic import BaseModel
 from opik.integrations.langchain import OpikTracer
+from langchain_core.messages import HumanMessage
+from langgraph.graph import StateGraph, START, END
+from langgraph.graph.message import add_messages
 
 # create your LangGraph graph
-graph = ...
-app = graph.compile(...)
+class State(BaseModel):
+    messages: Annotated[list, add_messages]
 
+def chatbot(state):
+    # Typically your LLM calls would be done here
+    return {"messages": "Hello, how can I help you today?"}
+
+graph = StateGraph(State)
+graph.add_node("chatbot", chatbot)
+graph.add_edge(START, "chatbot")
+graph.add_edge("chatbot", END)
+app = graph.compile()
+
+# Create the OpikTracer
 opik_tracer = OpikTracer(graph=app.get_graph(xray=True))
 
 # Pass the OpikTracer callback to the Graph.stream function
-for s in app.stream({"messages": [HumanMessage(content = QUESTION)]},
+for s in app.stream({"messages": [HumanMessage(content = "How to use LangGraph ?")]},
                       config={"callbacks": [opik_tracer]}):
     print(s)
 
 # Pass the OpikTracer callback to the Graph.invoke function
-result = app.invoke({"messages": [HumanMessage(content = QUESTION)]},
+result = app.invoke({"messages": [HumanMessage(content = "How to use LangGraph ?")]},
                       config={"callbacks": [opik_tracer]})
 ```
 

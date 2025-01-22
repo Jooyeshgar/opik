@@ -1,5 +1,7 @@
 ---
 sidebar_label: Groq
+description: Describes how to track Groq LLM calls using Opik
+pytest_codeblocks_skip: true
 ---
 
 # Groq
@@ -17,13 +19,13 @@ sidebar_label: Groq
 
 ### Configuring Opik
 
-To start tracking your Groq LLM calls, you can use our [LiteLLM integration](/docs/opik/tracing/integrations/litellm). You'll need to have both the `opik` and `litellm` packages installed. You can install them using pip:
+To start tracking your Groq LLM calls, you can use our [LiteLLM integration](/tracing/integrations/litellm.md). You'll need to have both the `opik` and `litellm` packages installed. You can install them using pip:
 
 ```bash
 pip install opik litellm
 ```
 
-In addition, you can configure Opik using the `opik configure` command which will prompt you for the correct local server address or if you are using the Cloud platfrom your API key:
+In addition, you can configure Opik using the `opik configure` command which will prompt you for the correct local server address or if you are using the Cloud platform your API key:
 
 ```bash
 opik configure
@@ -72,9 +74,12 @@ response = litellm.completion(
 
 ## Logging LLM calls within a tracked function
 
-If you are using LiteLLM within a function tracked with the [`@track`](/tracing/log_traces#using-function-decorators) decorator, you will need to pass the `current_span_data` as metadata to the `litellm.completion` call:
+If you are using LiteLLM within a function tracked with the [`@track`](/tracing/log_traces.mdx#using-function-decorators) decorator, you will need to pass the `current_span_data` as metadata to the `litellm.completion` call:
 
 ```python
+from opik import track, opik_context
+import litellm
+
 @track
 def generate_story(prompt):
     response = litellm.completion(
@@ -82,7 +87,7 @@ def generate_story(prompt):
         messages=[{"role": "user", "content": prompt}],
         metadata={
             "opik": {
-                "current_span_data": get_current_span_data(),
+                "current_span_data": opik_context.get_current_span_data(),
             },
         },
     )
@@ -93,11 +98,11 @@ def generate_story(prompt):
 def generate_topic():
     prompt = "Generate a topic for a story about Opik."
     response = litellm.completion(
-        model="Groq/Groq-pro",
+        model="groq/llama-3.3-70b-versatile",
         messages=[{"role": "user", "content": prompt}],
         metadata={
             "opik": {
-                "current_span_data": get_current_span_data(),
+                "current_span_data": opik_context.get_current_span_data(),
             },
         },
     )

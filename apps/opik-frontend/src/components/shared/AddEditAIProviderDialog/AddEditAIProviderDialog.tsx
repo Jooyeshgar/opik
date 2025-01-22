@@ -17,17 +17,20 @@ import { PROVIDERS, PROVIDERS_OPTIONS } from "@/constants/providers";
 import { SelectItem } from "@/components/ui/select";
 import { DropdownOption } from "@/types/shared";
 import EyeInput from "@/components/shared/EyeInput/EyeInput";
+import isFunction from "lodash/isFunction";
 
 type AddEditAIProviderDialogProps = {
   providerKey?: ProviderKey;
   open: boolean;
   setOpen: (open: boolean) => void;
+  onAddProvider?: (provider: PROVIDER_TYPE) => void;
 };
 
 const AddEditAIProviderDialog: React.FC<AddEditAIProviderDialogProps> = ({
   providerKey,
   open,
   setOpen,
+  onAddProvider,
 }) => {
   const { mutate: createMutate } = useProviderKeysCreateMutation();
   const { mutate: updateMutate } = useProviderKeysUpdateMutation();
@@ -39,7 +42,7 @@ const AddEditAIProviderDialog: React.FC<AddEditAIProviderDialogProps> = ({
   const isEdit = Boolean(providerKey);
   const isValid = Boolean(apiKey.length);
 
-  const providerName = (provider && PROVIDERS[provider].label) || "";
+  const providerName = (provider && PROVIDERS[provider]?.label) || "";
 
   const title = isEdit
     ? "Edit AI provider configuration"
@@ -58,6 +61,10 @@ const AddEditAIProviderDialog: React.FC<AddEditAIProviderDialogProps> = ({
         },
       });
     } else if (provider) {
+      if (isFunction(onAddProvider)) {
+        onAddProvider(provider);
+      }
+
       createMutate({
         providerKey: {
           apiKey,
@@ -65,10 +72,18 @@ const AddEditAIProviderDialog: React.FC<AddEditAIProviderDialogProps> = ({
         },
       });
     }
-  }, [createMutate, isEdit, apiKey, updateMutate, provider, providerKey]);
+  }, [
+    createMutate,
+    isEdit,
+    apiKey,
+    updateMutate,
+    provider,
+    providerKey,
+    onAddProvider,
+  ]);
 
   const renderOption = (option: DropdownOption<string>) => {
-    const Icon = PROVIDERS[option.value as PROVIDER_TYPE].icon;
+    const Icon = PROVIDERS[option.value as PROVIDER_TYPE]?.icon;
 
     return (
       <SelectItem key={option.value} value={option.value} withoutCheck>
@@ -110,7 +125,7 @@ const AddEditAIProviderDialog: React.FC<AddEditAIProviderDialogProps> = ({
               Get your {providerName} API key{" "}
               <Button variant="link" size="sm" asChild className="px-0">
                 <a
-                  href={PROVIDERS[provider].apiKeyURL}
+                  href={PROVIDERS[provider]?.apiKeyURL}
                   target="_blank"
                   rel="noreferrer"
                 >

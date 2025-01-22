@@ -1,5 +1,7 @@
 ---
 sidebar_label: Ollama
+description: Describes how to track Ollama LLM calls using Opik
+pytest_codeblocks_skip: true
 ---
 
 # Ollama
@@ -19,7 +21,7 @@ There are multiple ways to interact with Ollama from Python including but not li
 
 ### Configure Ollama
 
-Before starting, you will need to have an Ollama instance running. You can install Ollama by following the the [quickstart guide](https://github.com/ollama/ollama/blob/main/README.md#quickstart) which will automatically start the Ollama API server. If the Ollama server is not running, you can start it using `ollama serve`.
+Before starting, you will need to have an Ollama instance running. You can install Ollama by following the [quickstart guide](https://github.com/ollama/ollama/blob/main/README.md#quickstart) which will automatically start the Ollama API server. If the Ollama server is not running, you can start it using `ollama serve`.
 
 Once Ollama is running, you can download the llama3.1 model by running `ollama pull llama3.1`. For a full list of models available on Ollama, please refer to the [Ollama library](https://ollama.com/library).
 
@@ -122,7 +124,7 @@ The local LLM call is now traced and logged to Opik.
 In order to trace Ollama calls made with LangChain, you will need to first install the `langchain-ollama` package:
 
 ```bash
-pip install --quiet --upgrade langchain-ollama
+pip install --quiet --upgrade langchain-ollama langchain
 ```
 
 You will now be able to use the `OpikTracer` class to log all your Ollama calls made with LangChain to Opik:

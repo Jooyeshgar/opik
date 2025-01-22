@@ -6,6 +6,7 @@ import httpx
 from .core.client_wrapper import SyncClientWrapper
 from .system_usage.client import SystemUsageClient
 from .check.client import CheckClient
+from .automation_rule_evaluators.client import AutomationRuleEvaluatorsClient
 from .chat_completions.client import ChatCompletionsClient
 from .datasets.client import DatasetsClient
 from .experiments.client import ExperimentsClient
@@ -22,6 +23,7 @@ from .core.api_error import ApiError
 from .core.client_wrapper import AsyncClientWrapper
 from .system_usage.client import AsyncSystemUsageClient
 from .check.client import AsyncCheckClient
+from .automation_rule_evaluators.client import AsyncAutomationRuleEvaluatorsClient
 from .chat_completions.client import AsyncChatCompletionsClient
 from .datasets.client import AsyncDatasetsClient
 from .experiments.client import AsyncExperimentsClient
@@ -51,6 +53,8 @@ class OpikApi:
 
 
 
+    api_key : typing.Optional[str]
+    workspace_name : typing.Optional[str]
     timeout : typing.Optional[float]
         The timeout to be used, in seconds, for requests. By default the timeout is 60 seconds, unless a custom httpx client is used, in which case this default is not enforced.
 
@@ -64,7 +68,10 @@ class OpikApi:
     --------
     from Opik import OpikApi
 
-    client = OpikApi()
+    client = OpikApi(
+        api_key="YOUR_API_KEY",
+        workspace_name="YOUR_WORKSPACE_NAME",
+    )
     """
 
     def __init__(
@@ -72,6 +79,8 @@ class OpikApi:
         *,
         base_url: typing.Optional[str] = None,
         environment: OpikApiEnvironment = OpikApiEnvironment.DEFAULT,
+        api_key: typing.Optional[str] = None,
+        workspace_name: typing.Optional[str] = None,
         timeout: typing.Optional[float] = None,
         follow_redirects: typing.Optional[bool] = True,
         httpx_client: typing.Optional[httpx.Client] = None,
@@ -81,6 +90,8 @@ class OpikApi:
         )
         self._client_wrapper = SyncClientWrapper(
             base_url=_get_base_url(base_url=base_url, environment=environment),
+            api_key=api_key,
+            workspace_name=workspace_name,
             httpx_client=httpx_client
             if httpx_client is not None
             else httpx.Client(
@@ -92,6 +103,9 @@ class OpikApi:
         )
         self.system_usage = SystemUsageClient(client_wrapper=self._client_wrapper)
         self.check = CheckClient(client_wrapper=self._client_wrapper)
+        self.automation_rule_evaluators = AutomationRuleEvaluatorsClient(
+            client_wrapper=self._client_wrapper
+        )
         self.chat_completions = ChatCompletionsClient(
             client_wrapper=self._client_wrapper
         )
@@ -126,7 +140,10 @@ class OpikApi:
         --------
         from Opik import OpikApi
 
-        client = OpikApi()
+        client = OpikApi(
+            api_key="YOUR_API_KEY",
+            workspace_name="YOUR_WORKSPACE_NAME",
+        )
         client.is_alive()
         """
         _response = self._client_wrapper.httpx_client.request(
@@ -166,7 +183,10 @@ class OpikApi:
         --------
         from Opik import OpikApi
 
-        client = OpikApi()
+        client = OpikApi(
+            api_key="YOUR_API_KEY",
+            workspace_name="YOUR_WORKSPACE_NAME",
+        )
         client.version()
         """
         _response = self._client_wrapper.httpx_client.request(
@@ -207,6 +227,8 @@ class AsyncOpikApi:
 
 
 
+    api_key : typing.Optional[str]
+    workspace_name : typing.Optional[str]
     timeout : typing.Optional[float]
         The timeout to be used, in seconds, for requests. By default the timeout is 60 seconds, unless a custom httpx client is used, in which case this default is not enforced.
 
@@ -220,7 +242,10 @@ class AsyncOpikApi:
     --------
     from Opik import AsyncOpikApi
 
-    client = AsyncOpikApi()
+    client = AsyncOpikApi(
+        api_key="YOUR_API_KEY",
+        workspace_name="YOUR_WORKSPACE_NAME",
+    )
     """
 
     def __init__(
@@ -228,6 +253,8 @@ class AsyncOpikApi:
         *,
         base_url: typing.Optional[str] = None,
         environment: OpikApiEnvironment = OpikApiEnvironment.DEFAULT,
+        api_key: typing.Optional[str] = None,
+        workspace_name: typing.Optional[str] = None,
         timeout: typing.Optional[float] = None,
         follow_redirects: typing.Optional[bool] = True,
         httpx_client: typing.Optional[httpx.AsyncClient] = None,
@@ -237,6 +264,8 @@ class AsyncOpikApi:
         )
         self._client_wrapper = AsyncClientWrapper(
             base_url=_get_base_url(base_url=base_url, environment=environment),
+            api_key=api_key,
+            workspace_name=workspace_name,
             httpx_client=httpx_client
             if httpx_client is not None
             else httpx.AsyncClient(
@@ -248,6 +277,9 @@ class AsyncOpikApi:
         )
         self.system_usage = AsyncSystemUsageClient(client_wrapper=self._client_wrapper)
         self.check = AsyncCheckClient(client_wrapper=self._client_wrapper)
+        self.automation_rule_evaluators = AsyncAutomationRuleEvaluatorsClient(
+            client_wrapper=self._client_wrapper
+        )
         self.chat_completions = AsyncChatCompletionsClient(
             client_wrapper=self._client_wrapper
         )
@@ -284,7 +316,10 @@ class AsyncOpikApi:
 
         from Opik import AsyncOpikApi
 
-        client = AsyncOpikApi()
+        client = AsyncOpikApi(
+            api_key="YOUR_API_KEY",
+            workspace_name="YOUR_WORKSPACE_NAME",
+        )
 
 
         async def main() -> None:
@@ -332,7 +367,10 @@ class AsyncOpikApi:
 
         from Opik import AsyncOpikApi
 
-        client = AsyncOpikApi()
+        client = AsyncOpikApi(
+            api_key="YOUR_API_KEY",
+            workspace_name="YOUR_WORKSPACE_NAME",
+        )
 
 
         async def main() -> None:

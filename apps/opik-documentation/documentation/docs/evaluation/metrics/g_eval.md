@@ -1,5 +1,6 @@
 ---
 sidebar_label: G-Eval
+description: Describes Opik's built-in G-Eval metric which is is a task agnostic LLM as a Judge metric
 ---
 
 # G-Eval
@@ -23,7 +24,7 @@ metric = GEval(
 
 metric.score(
     output="""
-           OUTPUT: What is the capital of France?
+           OUTPUT: Paris is the capital of France.
            CONTEXT: France is a country in Western Europe. Its capital is Paris, which is known for landmarks like the Eiffel Tower.
            """
 )

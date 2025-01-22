@@ -1,5 +1,6 @@
 ---
 sidebar_label: aisuite
+description: Describes how to track aisuite LLM calls using Opik
 ---
 
 # aisuite
@@ -21,7 +22,7 @@ First, ensure you have both `opik` and `aisuite` packages installed:
 pip install opik "aisuite[openai]"
 ```
 
-In addition, you can configure Opik using the `opik configure` command which will prompt you for the correct local server address or if you are using the Cloud platfrom your API key:
+In addition, you can configure Opik using the `opik configure` command which will prompt you for the correct local server address or if you are using the Cloud platform your API key:
 
 ```bash
 opik configure

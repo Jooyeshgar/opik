@@ -1,5 +1,6 @@
 ---
 sidebar_label: LangChain
+description: Describes how to use Opik with LangChain
 ---
 
 # LangChain
@@ -21,7 +22,7 @@ To use the `OpikTracer` with LangChain, you'll need to have both the `opik` and 
 pip install opik langchain langchain_openai
 ```
 
-In addition, you can configure Opik using the `opik configure` command which will prompt you for the correct local server address or if you are using the Cloud platfrom your API key:
+In addition, you can configure Opik using the `opik configure` command which will prompt you for the correct local server address or if you are using the Cloud platform your API key:
 
 ```bash
 opik configure
